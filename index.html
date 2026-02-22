@@ -142,6 +142,27 @@
 
     /* Select dropdown */
     select.filter { padding: 7px 10px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 12px; background: #fff; }
+
+    /* Staff action buttons */
+    .staff-action-btn { padding: 4px 10px; border-radius: 6px; border: none; font-size: 12px; font-weight: 500; cursor: pointer; margin-right: 4px; }
+    .staff-action-btn.edit { background: #DBEAFE; color: #1E40AF; }
+    .staff-action-btn.delete { background: #FEE2E2; color: #991B1B; }
+    .staff-action-btn:hover { opacity: 0.8; }
+
+    /* Settings cards */
+    .settings-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .settings-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: #374151; }
+    .settings-card .desc { font-size: 13px; color: #6B7280; margin-bottom: 14px; }
+
+    /* Legend grid */
+    .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .legend-item { border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px; text-align: center; }
+    .legend-item p { font-size: 12px; color: #374151; margin: 6px 0 0; }
+
+    /* Manager row */
+    .manager-row { background: #F3F4F6; padding: 10px 14px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .manager-row span { font-size: 13px; color: #374151; }
+    .manager-row button { background: none; border: none; color: #EF4444; cursor: pointer; font-size: 16px; padding: 0; width: 24px; height: 24px; }
   </style>
 </head>
 <body>
@@ -165,6 +186,8 @@
     <button class="tab" data-tab="theatre" onclick="switchTab('theatre', this)">🏥 Theatre & Rooms</button>
     <button class="tab" data-tab="leave" onclick="switchTab('leave', this)">🕐 Annual Leave <span id="leave-badge" class="badge" style="display:none"></span></button>
     <button class="tab" data-tab="emails" onclick="switchTab('emails', this)">📧 Email Log</button>
+    <button class="tab" data-tab="staff" onclick="switchTab('staff', this)">👥 Staff</button>
+    <button class="tab" data-tab="settings" onclick="switchTab('settings', this)">⚙️ Settings</button>
   </div>
 
   <!-- Content -->
@@ -211,17 +234,11 @@
         </table>
       </div>
 
-      <div class="codes-bar">
-        <span><b>DO</b> = Day Off</span>
-        <span><b>A/L</b> = Annual Leave</span>
-        <span><b>AV</b> = Available</span>
-        <span><b>WFH</b> = Work From Home</span>
-        <span><b>S</b> = Scrub</span>
-        <span><b>A</b> = Assist</span>
-        <span><b>W</b> = Ward</span>
-        <span><b>R</b> = Reception</span>
-        <span><b>CR</b> = Circ/Recovery</span>
-        <span><b>OPD</b> = Outpatients</span>
+      <div style="margin-top:14px">
+        <button class="action-btn outline" style="width:100%;text-align:left;font-size:12px" onclick="toggleLegendPanel()" id="legend-toggle">▶ Show Colour Legend</button>
+        <div id="legend-panel" style="display:none;background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:16px;margin-top:10px">
+          <div class="legend-grid" id="rota-legend-grid"></div>
+        </div>
       </div>
     </div>
 
@@ -266,6 +283,56 @@
       <h2 style="font-size:17px;font-weight:600;margin-bottom:16px">Email Notification Log</h2>
       <div id="email-log-container"></div>
     </div>
+
+    <!-- STAFF TAB -->
+    <div id="tab-staff" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="font-size:17px;font-weight:600">Staff Directory</h2>
+        <button class="action-btn primary" onclick="showStaffModal()">+ Add Staff</button>
+      </div>
+      <div style="margin-bottom:14px">
+        <select class="filter" id="staff-group-filter" onchange="renderStaffTable()">
+          <option value="all">All Staff</option>
+          <option value="admin">Admin Only</option>
+          <option value="clinical">Clinical Only</option>
+          <option value="bank">Bank Only</option>
+        </select>
+      </div>
+      <table class="leave-table" style="width:100%">
+        <thead><tr><th>Name</th><th>Group</th><th>Department</th><th>Hours Type</th><th>Contract Hrs</th><th>Email</th><th>Phone</th><th>Actions</th></tr></thead>
+        <tbody id="staff-body"></tbody>
+      </table>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div id="tab-settings" style="display:none">
+      <h2 style="font-size:17px;font-weight:600;margin-bottom:20px">Settings</h2>
+
+      <div class="settings-card">
+        <h3>Rota Managers</h3>
+        <p class="desc">Managers receive leave request notifications and can approve/reject requests.</p>
+        <div id="manager-list"></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <input type="email" id="manager-email-input" placeholder="manager@example.com" style="flex:1;padding:9px 12px;border:1px solid #D1D5DB;border-radius:8px;font-size:14px">
+          <button class="action-btn primary" onclick="addManager()" style="white-space:nowrap">Add Manager</button>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Colour Legend</h3>
+        <p class="desc">Reference guide for shift colours used in the Weekly Rota view.</p>
+        <div class="legend-grid" id="settings-legend-grid"></div>
+      </div>
+
+      <div class="settings-card">
+        <h3>Notification Preferences</h3>
+        <p class="desc">Control automatic email notifications sent to staff.</p>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:0">
+          <input type="checkbox" id="auto-email-pref" onchange="saveNotificationPrefs()" style="width:18px;height:18px;cursor:pointer;margin-bottom:0">
+          <span style="font-size:14px;color:#374151">Send email notification automatically when publishing rota</span>
+        </label>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -292,6 +359,46 @@
       <div class="modal-actions">
         <button class="action-btn outline" onclick="closeLeaveModal()">Cancel</button>
         <button class="action-btn primary" onclick="submitLeave()">Submit Request</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Staff Modal -->
+<div id="staff-modal" class="modal-bg" style="display:none" onclick="if(event.target===this)closeStaffModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="staff-modal-title">Add Staff Member</h3>
+      <button onclick="closeStaffModal()" style="background:#F3F4F6;border:none;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div class="modal-body">
+      <label>Name *</label>
+      <input type="text" id="staff-name" placeholder="Full name">
+      <label>Group *</label>
+      <select id="staff-group">
+        <option value="">Select group...</option>
+        <option value="admin">Admin</option>
+        <option value="clinical">Clinical</option>
+        <option value="bank">Bank</option>
+      </select>
+      <label>Department</label>
+      <input type="text" id="staff-department" placeholder="e.g. OPD, Ward, Theatre">
+      <label>Hours Type</label>
+      <select id="staff-hours-type">
+        <option value="">Select...</option>
+        <option value="FULL TIME">Full Time</option>
+        <option value="PART TIME">Part Time</option>
+        <option value="BANK">Bank</option>
+      </select>
+      <label>Contract Hours</label>
+      <input type="number" id="staff-contract-hours" placeholder="e.g. 37.5" step="0.5" min="0">
+      <label>Email</label>
+      <input type="email" id="staff-email" placeholder="name@example.com">
+      <label>Phone</label>
+      <input type="tel" id="staff-phone" placeholder="+44 123 456 7890">
+      <div class="modal-actions">
+        <button class="action-btn outline" onclick="closeStaffModal()">Cancel</button>
+        <button class="action-btn primary" onclick="submitStaff()">Save</button>
       </div>
     </div>
   </div>
@@ -713,10 +820,12 @@ async function loadEmailLog() {
 function switchTab(name, btn) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
-  ['rota', 'theatre', 'leave', 'emails'].forEach(t => {
+  ['rota', 'theatre', 'leave', 'emails', 'staff', 'settings'].forEach(t => {
     document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
   });
   if (name === 'emails') loadEmailLog();
+  if (name === 'staff') renderStaffTable();
+  if (name === 'settings') loadSettings();
 }
 
 function showToast(msg, type = 'info') {
@@ -728,6 +837,228 @@ function showToast(msg, type = 'info') {
   container.innerHTML = '';
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 4000);
+}
+
+// ── STAFF MANAGEMENT ──────────────────────────────────────────────
+let editingStaffId = null;
+
+function showStaffModal(id) {
+  editingStaffId = null;
+  document.getElementById('staff-modal-title').textContent = 'Add Staff Member';
+  document.getElementById('staff-name').value = '';
+  document.getElementById('staff-group').value = '';
+  document.getElementById('staff-department').value = '';
+  document.getElementById('staff-hours-type').value = '';
+  document.getElementById('staff-contract-hours').value = '';
+  document.getElementById('staff-email').value = '';
+  document.getElementById('staff-phone').value = '';
+  document.getElementById('staff-modal').style.display = 'flex';
+}
+
+function closeStaffModal() {
+  document.getElementById('staff-modal').style.display = 'none';
+  editingStaffId = null;
+}
+
+function editStaffMember(id) {
+  const s = staff.find(x => x.id === id);
+  if (!s) return;
+  editingStaffId = id;
+  document.getElementById('staff-modal-title').textContent = 'Edit Staff Member';
+  document.getElementById('staff-name').value = s.name || '';
+  document.getElementById('staff-group').value = s.group || '';
+  document.getElementById('staff-department').value = s.department || '';
+  document.getElementById('staff-hours-type').value = s.hours || '';
+  document.getElementById('staff-contract-hours').value = s.contractHours || '';
+  document.getElementById('staff-email').value = s.email || '';
+  document.getElementById('staff-phone').value = s.phone || '';
+  document.getElementById('staff-modal').style.display = 'flex';
+}
+
+async function submitStaff() {
+  const data = {
+    name: document.getElementById('staff-name').value.trim(),
+    group: document.getElementById('staff-group').value,
+    department: document.getElementById('staff-department').value.trim(),
+    hours: document.getElementById('staff-hours-type').value,
+    contractHours: parseFloat(document.getElementById('staff-contract-hours').value) || 0,
+    email: document.getElementById('staff-email').value.trim(),
+    phone: document.getElementById('staff-phone').value.trim(),
+  };
+  if (!data.name || !data.group) { showToast('Name and Group are required', 'warning'); return; }
+
+  closeStaffModal();
+  if (editingStaffId) {
+    data.id = editingStaffId;
+    showToast('Updating staff...', 'info');
+    const result = await api('updateStaff', { data });
+    if (result && result.success) {
+      const result2 = await api('getStaff');
+      if (result2 && result2.staff) { staff = result2.staff; populateLeaveStaffDropdown(); }
+      renderStaffTable();
+      showToast('Staff updated', 'success');
+    } else { showToast('Failed to update: ' + (result?.error || 'Unknown'), 'error'); }
+  } else {
+    showToast('Adding staff...', 'info');
+    const result = await api('addStaff', { data });
+    if (result && result.success) {
+      const result2 = await api('getStaff');
+      if (result2 && result2.staff) { staff = result2.staff; populateLeaveStaffDropdown(); }
+      renderStaffTable();
+      showToast('Staff member added', 'success');
+    } else { showToast('Failed to add: ' + (result?.error || 'Unknown'), 'error'); }
+  }
+}
+
+async function deleteStaffMember(id) {
+  const s = staff.find(x => x.id === id);
+  if (!confirm(`Delete ${s ? s.name : id}? This cannot be undone.`)) return;
+  showToast('Deleting...', 'info');
+  const result = await api('deleteStaff', { id });
+  if (result && result.success) {
+    const result2 = await api('getStaff');
+    if (result2 && result2.staff) { staff = result2.staff; populateLeaveStaffDropdown(); }
+    renderStaffTable();
+    showToast('Staff member deleted', 'success');
+  } else { showToast('Failed to delete', 'error'); }
+}
+
+function renderStaffTable() {
+  const filter = document.getElementById('staff-group-filter')?.value || 'all';
+  const tbody = document.getElementById('staff-body');
+  if (!tbody) return;
+  let html = '';
+
+  const groups = [
+    { key: 'admin', label: 'ADMIN' },
+    { key: 'clinical', label: 'CLINICAL' },
+    { key: 'bank', label: 'BANK' },
+  ];
+
+  groups.forEach(g => {
+    if (filter !== 'all' && filter !== g.key) return;
+    const list = staff.filter(s => s.group === g.key);
+    if (list.length === 0) return;
+    html += `<tr><td colspan="8" style="padding:10px 14px;font-weight:700;font-size:12px;color:#1E40AF;background:#F9FAFB;letter-spacing:0.5px;border-bottom:2px solid #1E40AF">${g.label} (${list.length})</td></tr>`;
+    list.forEach(s => {
+      html += `<tr>
+        <td style="font-weight:500">${s.name}</td>
+        <td><span style="background:#F3F4F6;padding:3px 8px;border-radius:4px;font-size:11px;text-transform:capitalize">${s.group}</span></td>
+        <td style="color:#6B7280;font-size:13px">${s.department || '—'}</td>
+        <td style="font-size:13px">${s.hours || '—'}</td>
+        <td style="text-align:center;font-size:13px;font-weight:600">${s.contractHours || '—'}</td>
+        <td style="font-size:13px">${s.email ? '<a href="mailto:'+s.email+'" style="color:#1E40AF;text-decoration:none">'+s.email+'</a>' : '<span style="color:#D1D5DB">Not set</span>'}</td>
+        <td style="font-size:13px">${s.phone || '<span style="color:#D1D5DB">Not set</span>'}</td>
+        <td style="white-space:nowrap">
+          <button class="staff-action-btn edit" onclick="editStaffMember('${s.id}')">Edit</button>
+          <button class="staff-action-btn delete" onclick="deleteStaffMember('${s.id}')">Delete</button>
+        </td>
+      </tr>`;
+    });
+  });
+
+  if (html === '') html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#9CA3AF">No staff members</td></tr>';
+  tbody.innerHTML = html;
+}
+
+// ── SETTINGS ──────────────────────────────────────────────────────
+let settingsData = { manager_emails: [], auto_email: true };
+let settingsLoaded = false;
+
+async function loadSettings() {
+  if (settingsLoaded) { renderManagerList(); renderSettingsLegend(); return; }
+  const result = await api('getConfig');
+  if (result && result.config) settingsData = result.config;
+  settingsLoaded = true;
+  renderManagerList();
+  renderSettingsLegend();
+  document.getElementById('auto-email-pref').checked = settingsData.auto_email !== false;
+}
+
+function renderManagerList() {
+  const container = document.getElementById('manager-list');
+  if (!container) return;
+  const emails = settingsData.manager_emails || [];
+  if (emails.length === 0) {
+    container.innerHTML = '<p style="font-size:13px;color:#9CA3AF;padding:8px 0">No managers added yet</p>';
+    return;
+  }
+  container.innerHTML = emails.map(email =>
+    `<div class="manager-row"><span>${email}</span><button onclick="removeManager('${email}')" title="Remove">✕</button></div>`
+  ).join('');
+}
+
+async function addManager() {
+  const input = document.getElementById('manager-email-input');
+  const email = input.value.trim().toLowerCase();
+  if (!email) { showToast('Enter an email address', 'warning'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Invalid email address', 'warning'); return; }
+  if ((settingsData.manager_emails || []).includes(email)) { showToast('Manager already added', 'warning'); return; }
+  if (!settingsData.manager_emails) settingsData.manager_emails = [];
+  settingsData.manager_emails.push(email);
+  input.value = '';
+  await saveSettings();
+  renderManagerList();
+  showToast('Manager added', 'success');
+}
+
+async function removeManager(email) {
+  settingsData.manager_emails = (settingsData.manager_emails || []).filter(e => e !== email);
+  await saveSettings();
+  renderManagerList();
+  showToast('Manager removed', 'success');
+}
+
+async function saveSettings() {
+  await api('saveConfig', { config: settingsData });
+}
+
+async function saveNotificationPrefs() {
+  settingsData.auto_email = document.getElementById('auto-email-pref').checked;
+  await saveSettings();
+  showToast('Preference saved', 'success');
+}
+
+const LEGEND_ITEMS = [
+  { cls: 'time', label: '09:00-17:00', desc: 'Timed Shift' },
+  { cls: 'do', label: 'DO', desc: 'Day Off' },
+  { cls: 'al', label: 'A/L', desc: 'Annual Leave' },
+  { cls: 'av', label: 'AV', desc: 'Available' },
+  { cls: 'wfh', label: 'WFH', desc: 'Work From Home' },
+  { cls: 'scrub', label: 'S', desc: 'Scrub' },
+  { cls: 'assist', label: 'A', desc: 'Assist' },
+  { cls: 'ward', label: 'W', desc: 'Ward' },
+  { cls: 'rec', label: 'R', desc: 'Reception' },
+  { cls: 'cr', label: 'CR', desc: 'Circ/Recovery' },
+  { cls: 'opd', label: 'OPD', desc: 'Outpatients' },
+];
+
+function renderSettingsLegend() {
+  const grid = document.getElementById('settings-legend-grid');
+  if (!grid) return;
+  grid.innerHTML = LEGEND_ITEMS.map(item =>
+    `<div class="legend-item"><div class="shift-cell ${item.cls}" style="min-height:30px;font-size:11px">${item.label}</div><p>${item.desc}</p></div>`
+  ).join('');
+}
+
+// ── COLOUR LEGEND PANEL (Rota view) ──────────────────────────────
+let legendVisible = false;
+
+function toggleLegendPanel() {
+  legendVisible = !legendVisible;
+  const panel = document.getElementById('legend-panel');
+  const toggle = document.getElementById('legend-toggle');
+  panel.style.display = legendVisible ? 'block' : 'none';
+  toggle.textContent = legendVisible ? '▼ Hide Colour Legend' : '▶ Show Colour Legend';
+  if (legendVisible) renderRotaLegend();
+}
+
+function renderRotaLegend() {
+  const grid = document.getElementById('rota-legend-grid');
+  if (!grid) return;
+  grid.innerHTML = LEGEND_ITEMS.map(item =>
+    `<div class="legend-item"><div class="shift-cell ${item.cls}" style="min-height:28px;font-size:11px">${item.label}</div><p>${item.desc}</p></div>`
+  ).join('');
 }
 
 // ── INIT ──────────────────────────────────────────────────────────
