@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waterfront Rota Manager</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F0F4F8; color: #111827; }
+
+    /* Header */
+    .header { background: linear-gradient(135deg, #1E3A5F, #1E40AF); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { color: #fff; font-size: 18px; font-weight: 700; }
+    .header .subtitle { color: rgba(255,255,255,0.6); font-size: 11px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .header-actions button { background: rgba(255,255,255,0.12); border: none; border-radius: 8px; color: #fff; padding: 8px 14px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .header-actions button:hover { background: rgba(255,255,255,0.2); }
+
+    /* Tabs */
+    .tabs { background: #fff; border-bottom: 1px solid #E5E7EB; padding: 6px 24px; display: flex; gap: 4px; overflow-x: auto; }
+    .tab { padding: 9px 15px; border-radius: 8px; border: none; background: transparent; color: #6B7280; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .tab.active { background: #1E40AF; color: #fff; }
+    .tab:hover:not(.active) { background: #F3F4F6; }
+    .tab .badge { background: #FEF3C7; color: #92400E; font-size: 10px; font-weight: 600; border-radius: 8px; padding: 1px 5px; margin-left: 4px; }
+
+    /* Content */
+    .content { padding: 20px 24px; max-width: 1400px; }
+
+    /* Week Nav */
+    .week-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+    .week-nav h2 { font-size: 17px; font-weight: 600; margin: 0; }
+    .week-nav .month { font-size: 11px; font-weight: 700; color: #1E40AF; letter-spacing: 1px; }
+    .week-nav .status { font-size: 11px; font-weight: 500; }
+    .week-nav .status.published { color: #10B981; }
+    .week-nav .status.draft { color: #F59E0B; }
+    .nav-btn { background: #fff; border: 1px solid #D1D5DB; border-radius: 8px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; }
+    .nav-btn:hover { background: #F3F4F6; }
+    .action-btn { display: flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 500; border: none; }
+    .action-btn.outline { border: 1px solid #D1D5DB; background: #fff; color: #374151; }
+    .action-btn.primary { background: #1E40AF; color: #fff; }
+    .action-btn.success { background: #10B981; color: #fff; }
+    .action-btn.purple { background: #8B5CF6; color: #fff; }
+
+    /* Rota Grid */
+    .rota-grid { background: #fff; border-radius: 12px; border: 1px solid #E5E7EB; overflow: hidden; }
+    .rota-grid table { width: 100%; border-collapse: collapse; min-width: 850px; }
+    .rota-grid thead th { padding: 10px 8px; font-size: 12px; font-weight: 600; background: #1E3A5F; color: #fff; text-align: center; }
+    .rota-grid thead th:first-child { text-align: left; padding-left: 12px; width: 155px; position: sticky; left: 0; z-index: 2; background: #1E3A5F; }
+    .rota-grid thead th:last-child { width: 60px; }
+    .rota-grid tbody td { padding: 3px; border-bottom: 1px solid #F3F4F6; }
+    .rota-grid tbody td:first-child { padding: 6px 12px; position: sticky; left: 0; background: #fff; z-index: 1; border-right: 1px solid #E5E7EB; }
+    .staff-name { font-weight: 500; font-size: 13px; }
+    .staff-meta { font-size: 10px; color: #6B7280; }
+    .hours-cell { text-align: center; padding: 6px 8px !important; }
+    .hours-val { font-size: 13px; font-weight: 600; }
+    .hours-contract { font-size: 10px; color: #9CA3AF; }
+    .hours-over { color: #DC2626; }
+
+    /* Section headers */
+    .section-header td { padding: 10px 12px 6px !important; font-weight: 700; font-size: 13px; background: #F9FAFB !important; letter-spacing: 0.5px; border-bottom: 2px solid !important; }
+    .section-header.admin td { color: #1E40AF; border-color: #1E40AF !important; }
+    .section-header.clinical td { color: #065F46; border-color: #065F46 !important; }
+    .section-header.bank td { color: #9D174D; border-color: #9D174D !important; }
+    .section-header.ops td { color: #6B7280; border-color: #D1D5DB !important; background: #F9FAFB !important; }
+
+    /* Shift Cell */
+    .shift-cell { border-radius: 6px; min-height: 36px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; text-align: center; cursor: pointer; padding: 6px 2px; line-height: 1.3; word-break: break-word; transition: all 0.15s; border: 1.5px solid; }
+    .shift-cell.empty { background: #FAFAFA; border-color: #E5E7EB; color: #9CA3AF; font-weight: 400; }
+    .shift-cell.do { background: #F3F4F6; border-color: #D1D5DB; color: #6B7280; }
+    .shift-cell.al { background: #FEF3C7; border-color: #F59E0B; color: #92400E; }
+    .shift-cell.av { background: #DBEAFE; border-color: #3B82F6; color: #1E40AF; }
+    .shift-cell.wfh { background: #E0E7FF; border-color: #6366F1; color: #4338CA; }
+    .shift-cell.scrub { background: #DBEAFE; border-color: #1E40AF; color: #1E40AF; }
+    .shift-cell.assist { background: #FEF3C7; border-color: #92400E; color: #92400E; }
+    .shift-cell.ward { background: #D1FAE5; border-color: #065F46; color: #065F46; }
+    .shift-cell.rec { background: #FCE7F3; border-color: #9D174D; color: #9D174D; }
+    .shift-cell.cr { background: #EDE9FE; border-color: #5B21B6; color: #5B21B6; }
+    .shift-cell.opd { background: #FFF7ED; border-color: #C2410C; color: #C2410C; }
+    .shift-cell.time { background: #ECFDF5; border-color: #10B981; color: #065F46; }
+    .shift-cell.other { background: #F0F9FF; border-color: #3B82F6; color: #1E40AF; }
+
+    /* Shift input */
+    .shift-input { width: 100%; padding: 6px 4px; border: 2px solid #3B82F6; border-radius: 6px; font-size: 12px; text-align: center; outline: none; background: #EFF6FF; }
+
+    /* Codes bar */
+    .codes-bar { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; font-size: 11px; color: #6B7280; }
+    .codes-bar b { font-weight: 700; }
+
+    /* Loading */
+    .loading { text-align: center; padding: 60px; color: #6B7280; }
+    .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #E5E7EB; border-top-color: #1E40AF; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Toast */
+    .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 12px 20px; border-radius: 12px; color: #fff; font-size: 14px; font-weight: 500; box-shadow: 0 8px 32px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 10px; animation: slideIn 0.3s ease; max-width: 420px; }
+    .toast.success { background: #10B981; }
+    .toast.error { background: #EF4444; }
+    .toast.warning { background: #F59E0B; }
+    .toast.info { background: #3B82F6; }
+    @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* Leave table */
+    .leave-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #E5E7EB; }
+    .leave-table thead th { padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 600; color: #374151; background: #F9FAFB; border-bottom: 1px solid #E5E7EB; }
+    .leave-table tbody td { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #F3F4F6; }
+    .leave-status { padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+    .leave-status.pending { background: #FEF3C7; color: #92400E; }
+    .leave-status.approved { background: #D1FAE5; color: #065F46; }
+    .leave-status.rejected { background: #FEE2E2; color: #991B1B; }
+    .leave-btn { padding: 5px 10px; border-radius: 6px; border: none; font-size: 12px; font-weight: 500; cursor: pointer; }
+    .leave-btn.approve { background: #D1FAE5; color: #065F46; }
+    .leave-btn.reject { background: #FEE2E2; color: #991B1B; }
+
+    /* Modal */
+    .modal-bg { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); }
+    .modal { background: #fff; border-radius: 16px; width: 480px; max-height: 85vh; overflow: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.2); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px; border-bottom: 1px solid #E5E7EB; }
+    .modal-header h3 { font-size: 17px; font-weight: 600; }
+    .modal-body { padding: 24px; }
+    .modal label { display: block; font-size: 12px; font-weight: 500; color: #374151; margin-bottom: 5px; }
+    .modal input, .modal select, .modal textarea { width: 100%; padding: 9px 12px; border: 1px solid #D1D5DB; border-radius: 8px; font-size: 14px; outline: none; margin-bottom: 14px; }
+    .modal textarea { min-height: 80px; resize: vertical; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; padding-top: 6px; }
+
+    /* Email log */
+    .email-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #E5E7EB; }
+    .email-table thead th { padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 600; color: #374151; background: #F9FAFB; border-bottom: 1px solid #E5E7EB; }
+    .email-table tbody td { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #F3F4F6; }
+
+    /* Config banner */
+    .config-banner { background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
+    .config-banner h3 { font-size: 14px; color: #92400E; margin-bottom: 8px; }
+    .config-banner p { font-size: 13px; color: #92400E; line-height: 1.6; }
+    .config-banner code { background: #FDE68A; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .content { padding: 12px; }
+      .week-nav { flex-direction: column; align-items: flex-start; }
+    }
+    @media print { .no-print { display: none !important; } .content { padding: 0; } }
+
+    /* Select dropdown */
+    select.filter { padding: 7px 10px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 12px; background: #fff; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Header -->
+  <div class="header no-print">
+    <div>
+      <h1>Waterfront Rota Manager</h1>
+      <div class="subtitle">Staff scheduling, theatre allocation & notifications</div>
+    </div>
+    <div class="header-actions">
+      <button onclick="window.print()">🖨 Print</button>
+      <button onclick="loadData()" title="Refresh data">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs no-print">
+    <button class="tab active" data-tab="rota" onclick="switchTab('rota', this)">📅 Weekly Rota</button>
+    <button class="tab" data-tab="theatre" onclick="switchTab('theatre', this)">🏥 Theatre & Rooms</button>
+    <button class="tab" data-tab="leave" onclick="switchTab('leave', this)">🕐 Annual Leave <span id="leave-badge" class="badge" style="display:none"></span></button>
+    <button class="tab" data-tab="emails" onclick="switchTab('emails', this)">📧 Email Log</button>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <!-- Config Banner (shows if API not configured) -->
+    <div id="config-banner" class="config-banner" style="display:none">
+      <h3>⚙️ Setup Required</h3>
+      <p>Set your Google Apps Script Web App URL at the top of this file. Open <code>index.html</code> and replace <code>YOUR_APPS_SCRIPT_URL</code> with your deployed web app URL. See the SETUP-GUIDE.md for step-by-step instructions.</p>
+    </div>
+
+    <!-- ROTA TAB -->
+    <div id="tab-rota">
+      <div class="week-nav">
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="nav-btn" onclick="changeWeek(-1)">‹</button>
+          <div>
+            <div class="month" id="month-label"></div>
+            <h2 id="week-label"></h2>
+            <span class="status" id="publish-status"></span>
+          </div>
+          <button class="nav-btn" onclick="changeWeek(1)">›</button>
+          <button class="action-btn outline" onclick="weekOffset=0;updateWeek()">Today</button>
+        </div>
+        <div class="no-print" style="display:flex;gap:6px;flex-wrap:wrap">
+          <select class="filter" id="group-filter" onchange="renderRota()">
+            <option value="all">All Staff</option>
+            <option value="admin">Admin Only</option>
+            <option value="clinical">Clinical Only</option>
+            <option value="bank">Bank Only</option>
+          </select>
+          <button class="action-btn outline" onclick="copyLastWeek()">📋 Copy Last Week</button>
+          <button class="action-btn success" onclick="publishRota()">📧 Publish & Notify</button>
+        </div>
+      </div>
+
+      <div class="rota-grid" style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Staff</th>
+            <th id="hd-0"></th><th id="hd-1"></th><th id="hd-2"></th><th id="hd-3"></th><th id="hd-4"></th><th id="hd-5"></th><th id="hd-6"></th>
+            <th>HRS</th>
+          </tr></thead>
+          <tbody id="rota-body"></tbody>
+        </table>
+      </div>
+
+      <div class="codes-bar">
+        <span><b>DO</b> = Day Off</span>
+        <span><b>A/L</b> = Annual Leave</span>
+        <span><b>AV</b> = Available</span>
+        <span><b>WFH</b> = Work From Home</span>
+        <span><b>S</b> = Scrub</span>
+        <span><b>A</b> = Assist</span>
+        <span><b>W</b> = Ward</span>
+        <span><b>R</b> = Reception</span>
+        <span><b>CR</b> = Circ/Recovery</span>
+        <span><b>OPD</b> = Outpatients</span>
+      </div>
+    </div>
+
+    <!-- THEATRE TAB -->
+    <div id="tab-theatre" style="display:none">
+      <div class="week-nav">
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="nav-btn" onclick="changeWeek(-1)">‹</button>
+          <div>
+            <div class="month" id="month-label-t"></div>
+            <h2 id="week-label-t"></h2>
+          </div>
+          <button class="nav-btn" onclick="changeWeek(1)">›</button>
+        </div>
+      </div>
+      <div class="rota-grid" style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Room / Theatre</th>
+            <th id="ht-0"></th><th id="ht-1"></th><th id="ht-2"></th><th id="ht-3"></th><th id="ht-4"></th><th id="ht-5"></th><th id="ht-6"></th>
+          </tr></thead>
+          <tbody id="theatre-body"></tbody>
+        </table>
+      </div>
+      <p style="margin-top:12px;font-size:12px;color:#6B7280">Enter consultant name, time & type (e.g. "AQ GA", "OMAR 12-5:30", "KATY 10-1").</p>
+    </div>
+
+    <!-- LEAVE TAB -->
+    <div id="tab-leave" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="font-size:17px;font-weight:600">Annual Leave & Time Off</h2>
+        <button class="action-btn purple" onclick="showLeaveModal()">+ New Request</button>
+      </div>
+      <table class="leave-table">
+        <thead><tr><th>Staff</th><th>Type</th><th>From</th><th>To</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="leave-body"></tbody>
+      </table>
+    </div>
+
+    <!-- EMAIL LOG TAB -->
+    <div id="tab-emails" style="display:none">
+      <h2 style="font-size:17px;font-weight:600;margin-bottom:16px">Email Notification Log</h2>
+      <div id="email-log-container"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Leave Modal -->
+<div id="leave-modal" class="modal-bg" style="display:none" onclick="if(event.target===this)closeLeaveModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>New Leave Request</h3>
+      <button onclick="closeLeaveModal()" style="background:#F3F4F6;border:none;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div class="modal-body">
+      <label>Staff Member</label>
+      <select id="leave-staff"></select>
+      <label>Leave Type</label>
+      <select id="leave-type">
+        <option>Annual Leave</option><option>Sick Leave</option><option>Training</option><option>Personal</option><option>TOIL</option>
+      </select>
+      <label>From</label>
+      <input type="date" id="leave-start">
+      <label>To</label>
+      <input type="date" id="leave-end">
+      <label>Reason / Notes</label>
+      <textarea id="leave-reason" placeholder="Optional..."></textarea>
+      <div class="modal-actions">
+        <button class="action-btn outline" onclick="closeLeaveModal()">Cancel</button>
+        <button class="action-btn primary" onclick="submitLeave()">Submit Request</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// CONFIGURATION — Replace this with your deployed Apps Script URL
+// ═══════════════════════════════════════════════════════════════════
+const API_URL = 'https://script.google.com/macros/s/AKfycbwVy1VzsPAaeEvhpLg6kbPWtyR055DTGtFVd0dfrpeaddjurdqxEC0hhpZZTLRga44m/exec';
+// ═══════════════════════════════════════════════════════════════════
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const FULL_DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+const ROOMS = ['ROOM 1', 'ROOM 2 - PRE-OP', 'ROOM 3', 'ROOM 4 - TRT RM', 'MINOR THEATRE', 'MAIN THEATRE'];
+const MONTHS = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+
+let weekOffset = 0;
+let staff = [];
+let currentRota = {};
+let currentTheatre = {};
+let leaveRequests = [];
+let isPublished = false;
+let editingCell = null;
+
+// ── API CALLS ─────────────────────────────────────────────────────
+async function api(action, params = {}) {
+  if (API_URL === 'YOUR_APPS_SCRIPT_URL') {
+    document.getElementById('config-banner').style.display = 'block';
+    return null;
+  }
+  const url = new URL(API_URL);
+  url.searchParams.set('action', action);
+  Object.entries(params).forEach(([k, v]) => {
+    url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : v);
+  });
+  try {
+    const res = await fetch(url.toString());
+    return await res.json();
+  } catch (e) {
+    showToast('Connection error: ' + e.message, 'error');
+    return null;
+  }
+}
+
+// ── WEEK CALCULATIONS ─────────────────────────────────────────────
+function getWeekDates() {
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7);
+  return DAYS.map((_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+}
+
+function getWeekKey() {
+  const dates = getWeekDates();
+  return dates[0].toISOString().slice(0, 10);
+}
+
+function updateWeek() {
+  const dates = getWeekDates();
+  const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const label = `${dates[0].getDate()} ${m[dates[0].getMonth()]} – ${dates[6].getDate()} ${m[dates[6].getMonth()]} ${dates[6].getFullYear()}`;
+  const month = MONTHS[dates[0].getMonth()];
+
+  document.getElementById('week-label').textContent = label;
+  document.getElementById('month-label').textContent = month;
+  document.getElementById('week-label-t').textContent = label;
+  document.getElementById('month-label-t').textContent = month;
+
+  dates.forEach((d, i) => {
+    const hdr = `${FULL_DAYS[i]} ${d.getDate()}`;
+    document.getElementById('hd-' + i).textContent = hdr;
+    document.getElementById('ht-' + i).textContent = hdr;
+  });
+
+  loadWeekData();
+}
+
+function changeWeek(dir) { weekOffset += dir; updateWeek(); }
+
+// ── DATA LOADING ──────────────────────────────────────────────────
+async function loadData() {
+  showToast('Loading data...', 'info');
+  const result = await api('getStaff');
+  if (result && result.staff) {
+    staff = result.staff;
+    populateLeaveStaffDropdown();
+  }
+  await loadWeekData();
+  await loadLeave();
+  showToast('Data loaded', 'success');
+}
+
+async function loadWeekData() {
+  const wk = getWeekKey();
+  const result = await api('getRota', { weekKey: wk });
+  if (result) {
+    currentRota = result.shifts || {};
+    isPublished = result.published || false;
+    updatePublishStatus();
+    renderRota();
+  }
+
+  const theatreResult = await api('getTheatre', { weekKey: wk });
+  if (theatreResult) {
+    currentTheatre = theatreResult.schedule || {};
+    renderTheatre();
+  }
+}
+
+async function loadLeave() {
+  const result = await api('getLeave');
+  if (result && result.requests) {
+    leaveRequests = result.requests;
+    renderLeave();
+  }
+}
+
+// ── RENDERING ─────────────────────────────────────────────────────
+function getShiftClass(val) {
+  if (!val) return 'empty';
+  const v = val.toUpperCase().trim();
+  if (v === 'DO' || v === 'DO R') return 'do';
+  if (v.startsWith('A/L')) return 'al';
+  if (v === 'AV') return 'av';
+  if (v.includes('WFH')) return 'wfh';
+  if (v.endsWith(' S') || v.endsWith('S')) return 'scrub';
+  if (v.endsWith(' A') || v === 'A') return 'assist';
+  if (v.endsWith(' W') || v.endsWith('W')) return 'ward';
+  if (v.endsWith(' R') || v === 'R') return 'rec';
+  if (v.endsWith(' CR') || v.endsWith('CR')) return 'cr';
+  if (v.endsWith(' OPD') || v.endsWith('OPD')) return 'opd';
+  if (v.match(/\d/)) return 'time';
+  return 'other';
+}
+
+function parseHours(str) {
+  if (!str) return 0;
+  const v = str.toUpperCase().trim();
+  if (v === 'DO' || v === 'A/L' || v === 'AV' || v === 'OFF' || v.startsWith('DO ')) return 0;
+  // Handle WFH hours like "2hrs WFH"
+  const wfh = v.match(/(\d+\.?\d*)\s*h/i);
+  if (wfh) return parseFloat(wfh[1]);
+  const m = str.match(/(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
+  if (!m) return 0;
+  const s = parseInt(m[1]) + (parseInt(m[2]||'0')/60);
+  const e = parseInt(m[3]) + (parseInt(m[4]||'0')/60);
+  const diff = e - s;
+  return Math.max(0, diff > 6 ? diff - 0.5 : diff);
+}
+
+function renderRota() {
+  const filter = document.getElementById('group-filter').value;
+  const tbody = document.getElementById('rota-body');
+  let html = '';
+
+  const groups = {
+    admin: staff.filter(s => s.group === 'admin'),
+    clinical: staff.filter(s => s.group === 'clinical'),
+    bank: staff.filter(s => s.group === 'bank'),
+  };
+
+  function renderGroup(groupName, label, colorClass, staffList) {
+    if (filter !== 'all' && filter !== groupName) return '';
+    let h = `<tr class="section-header ${colorClass}"><td colspan="9">${label}</td></tr>`;
+    staffList.forEach(s => {
+      const shifts = currentRota[s.id] || {};
+      let totalHrs = 0;
+      h += '<tr>';
+      h += `<td><div class="staff-name">${s.name}</div><div class="staff-meta">${s.hours || (s.contractHours ? s.contractHours + 'h/wk' : s.department || '')}</div></td>`;
+      DAYS.forEach(d => {
+        const val = shifts[d] || '';
+        totalHrs += parseHours(val);
+        const cls = getShiftClass(val);
+        h += `<td><div class="shift-cell ${cls}" onclick="editShift('${s.id}','${d}',this)" title="${val || 'Click to assign'}">${val || '—'}</div></td>`;
+      });
+      const hrs = Math.round(totalHrs * 10) / 10;
+      const isOver = s.contractHours && hrs > parseFloat(s.contractHours) + 5;
+      h += `<td class="hours-cell"><div class="hours-val ${isOver?'hours-over':''}">${hrs > 0 ? hrs + 'h' : '—'}</div>${s.contractHours ? '<div class="hours-contract">/' + s.contractHours + '</div>' : ''}</td>`;
+      h += '</tr>';
+    });
+
+    // Add OPEN/CLOSE and CLEAN rows for clinical
+    if (groupName === 'clinical' && (filter === 'all' || filter === 'clinical')) {
+      ['OPEN/CLOSE', 'CLEAN'].forEach(label => {
+        h += `<tr class="section-header ops"><td colspan="9" style="padding:6px 12px !important;font-size:12px">${label}</td></tr>`;
+        // These use the rota storage with special IDs
+        const id = 'ops-' + label.toLowerCase().replace(/\//g,'-');
+        const shifts = currentRota[id] || {};
+        h += '<tr>';
+        h += `<td><div class="staff-name" style="color:#6B7280;font-size:12px">${label}</div></td>`;
+        DAYS.forEach(d => {
+          const val = shifts[d] || '';
+          h += `<td><div class="shift-cell ${val ? 'other' : 'empty'}" onclick="editShift('${id}','${d}',this)">${val || '—'}</div></td>`;
+        });
+        h += '<td></td></tr>';
+      });
+    }
+    return h;
+  }
+
+  html += renderGroup('admin', 'ADMIN', 'admin', groups.admin);
+  html += renderGroup('clinical', 'CLINICAL', 'clinical', groups.clinical);
+  html += renderGroup('bank', 'BANK STAFF', 'bank', groups.bank);
+
+  tbody.innerHTML = html;
+}
+
+function renderTheatre() {
+  const tbody = document.getElementById('theatre-body');
+  let html = '';
+  ROOMS.forEach(room => {
+    const schedule = currentTheatre[room] || {};
+    const isTheatre = room.includes('THEATRE');
+    html += '<tr>';
+    html += `<td style="font-weight:600;font-size:13px;color:#374151;${isTheatre?'background:#F0F9FF':''}">${room}</td>`;
+    DAYS.forEach(d => {
+      const val = schedule[d] || '';
+      html += `<td><div class="shift-cell ${val ? 'other' : 'empty'}" onclick="editTheatre('${room}','${d}',this)">${val || '—'}</div></td>`;
+    });
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function renderLeave() {
+  const tbody = document.getElementById('leave-body');
+  const pending = leaveRequests.filter(r => r.status === 'pending').length;
+  const badge = document.getElementById('leave-badge');
+  if (pending > 0) { badge.style.display = 'inline'; badge.textContent = pending; }
+  else { badge.style.display = 'none'; }
+
+  let html = '';
+  leaveRequests.forEach(r => {
+    html += `<tr>
+      <td style="font-weight:500">${r.staffName}</td>
+      <td>${r.type}</td>
+      <td>${r.startDate}</td>
+      <td>${r.endDate}</td>
+      <td style="color:#6B7280">${r.reason || '—'}</td>
+      <td><span class="leave-status ${r.status}">${r.status}</span></td>
+      <td>${r.status === 'pending' ? `<button class="leave-btn approve" onclick="approveLeave('${r.id}')">Approve</button> <button class="leave-btn reject" onclick="rejectLeave('${r.id}')">Reject</button>` : ''}</td>
+    </tr>`;
+  });
+  if (leaveRequests.length === 0) html = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#9CA3AF">No leave requests</td></tr>';
+  tbody.innerHTML = html;
+}
+
+function updatePublishStatus() {
+  const el = document.getElementById('publish-status');
+  el.textContent = isPublished ? '✓ Published' : '● Draft';
+  el.className = 'status ' + (isPublished ? 'published' : 'draft');
+}
+
+// ── EDITING ───────────────────────────────────────────────────────
+function editShift(staffId, day, el) {
+  // Remove any existing input
+  if (editingCell) {
+    const existing = document.querySelector('.shift-input');
+    if (existing) existing.parentElement.replaceWith(editingCell.original);
+  }
+
+  const currentVal = el.textContent === '—' ? '' : el.textContent;
+  const td = el.parentElement;
+  editingCell = { staffId, day, original: td.cloneNode(true) };
+
+  const input = document.createElement('input');
+  input.className = 'shift-input';
+  input.value = currentVal;
+  input.placeholder = 'e.g. 07:00-15:00 S';
+
+  input.onblur = () => saveShiftEdit(staffId, day, input.value);
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') { input.blur(); }
+    if (e.key === 'Escape') { td.innerHTML = editingCell.original.innerHTML; editingCell = null; }
+  };
+
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+async function saveShiftEdit(staffId, day, value) {
+  // Update local state
+  if (!currentRota[staffId]) currentRota[staffId] = {};
+  currentRota[staffId][day] = value;
+  editingCell = null;
+  renderRota();
+
+  // Save to backend
+  await api('saveShift', { data: { weekKey: getWeekKey(), staffId, day, value } });
+}
+
+function editTheatre(room, day, el) {
+  const currentVal = el.textContent === '—' ? '' : el.textContent;
+  const td = el.parentElement;
+
+  const input = document.createElement('input');
+  input.className = 'shift-input';
+  input.value = currentVal;
+  input.placeholder = 'e.g. AQ GA';
+
+  input.onblur = async () => {
+    if (!currentTheatre[room]) currentTheatre[room] = {};
+    currentTheatre[room][day] = input.value;
+    renderTheatre();
+    await api('saveTheatre', { data: { weekKey: getWeekKey(), room, day, value: input.value } });
+  };
+  input.onkeydown = (e) => { if (e.key === 'Enter') input.blur(); };
+
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+// ── ACTIONS ───────────────────────────────────────────────────────
+async function publishRota() {
+  if (!confirm('Publish this week\'s rota and send email notifications to all staff?')) return;
+  showToast('Publishing rota & sending emails...', 'info');
+  const result = await api('publishRota', { weekKey: getWeekKey() });
+  if (result && result.success) {
+    isPublished = true;
+    updatePublishStatus();
+    showToast(`Rota published! ${result.emailsSent} emails sent`, 'success');
+  } else {
+    showToast('Failed to publish: ' + (result?.error || 'Unknown error'), 'error');
+  }
+}
+
+async function copyLastWeek() {
+  const prevOffset = weekOffset - 1;
+  const today = new Date();
+  const prevMonday = new Date(today);
+  prevMonday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + prevOffset * 7);
+  const fromWeek = prevMonday.toISOString().slice(0, 10);
+  const toWeek = getWeekKey();
+
+  showToast('Copying previous week...', 'info');
+  const result = await api('copyWeek', { fromWeek, toWeek });
+  if (result && result.success) {
+    await loadWeekData();
+    showToast('Copied previous week\'s rota', 'success');
+  } else {
+    showToast('No rota data found for previous week', 'warning');
+  }
+}
+
+// ── LEAVE ─────────────────────────────────────────────────────────
+function populateLeaveStaffDropdown() {
+  const select = document.getElementById('leave-staff');
+  select.innerHTML = staff.map(s => `<option value="${s.id}" data-name="${s.name}">${s.name}${s.department ? ' (' + s.department + ')' : ''}</option>`).join('');
+}
+
+function showLeaveModal() { document.getElementById('leave-modal').style.display = 'flex'; }
+function closeLeaveModal() { document.getElementById('leave-modal').style.display = 'none'; }
+
+async function submitLeave() {
+  const select = document.getElementById('leave-staff');
+  const staffId = select.value;
+  const staffName = select.options[select.selectedIndex].dataset.name;
+  const data = {
+    staffId, staffName,
+    type: document.getElementById('leave-type').value,
+    startDate: document.getElementById('leave-start').value,
+    endDate: document.getElementById('leave-end').value,
+    reason: document.getElementById('leave-reason').value,
+  };
+  if (!data.startDate || !data.endDate) { showToast('Please select dates', 'warning'); return; }
+
+  closeLeaveModal();
+  showToast('Submitting leave request...', 'info');
+  const result = await api('submitLeave', { data });
+  if (result && result.success) {
+    showToast('Leave request submitted & managers notified', 'success');
+    await loadLeave();
+  }
+}
+
+async function approveLeave(id) {
+  showToast('Approving...', 'info');
+  await api('approveLeave', { id });
+  showToast('Leave approved — staff member notified', 'success');
+  await loadLeave();
+}
+
+async function rejectLeave(id) {
+  if (!confirm('Reject this leave request?')) return;
+  await api('rejectLeave', { id });
+  showToast('Leave rejected — staff member notified', 'warning');
+  await loadLeave();
+}
+
+// ── EMAIL LOG ─────────────────────────────────────────────────────
+async function loadEmailLog() {
+  const result = await api('getEmailLog');
+  const container = document.getElementById('email-log-container');
+  if (!result || !result.logs || result.logs.length === 0) {
+    container.innerHTML = '<div style="background:#fff;border-radius:12px;border:1px solid #E5E7EB;padding:50px;text-align:center"><p style="color:#6B7280">No emails sent yet. Publish a rota to notify staff.</p></div>';
+    return;
+  }
+  let html = '<table class="email-table"><thead><tr><th>Time</th><th>Type</th><th>Recipient</th><th>Details</th></tr></thead><tbody>';
+  result.logs.slice(0, 50).forEach(l => {
+    html += `<tr><td style="color:#6B7280;font-size:12px">${new Date(l.timestamp).toLocaleString()}</td><td style="font-weight:500">${l.type}</td><td>${l.recipient}</td><td style="color:#6B7280">${l.details}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+// ── UI UTILITIES ──────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  ['rota', 'theatre', 'leave', 'emails'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
+  });
+  if (name === 'emails') loadEmailLog();
+}
+
+function showToast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.innerHTML = msg;
+  // Remove any existing toasts
+  container.innerHTML = '';
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  updateWeek();
+  if (API_URL !== 'YOUR_APPS_SCRIPT_URL') {
+    loadData();
+  } else {
+    // Demo mode with local data
+    document.getElementById('config-banner').style.display = 'block';
+    staff = [
+      {id:'adm-01',name:'Janey',group:'admin',hours:'FULL TIME',contractHours:37.5},
+      {id:'adm-02',name:'Katrina',group:'admin',hours:'FULL TIME',contractHours:37.5},
+      {id:'adm-03',name:'Debbie',group:'admin',hours:'PART TIME',contractHours:22.5},
+      {id:'adm-04',name:'Danielle',group:'admin',hours:'PART TIME',contractHours:15.5},
+      {id:'adm-05',name:'Margaret',group:'admin',hours:'PART TIME',contractHours:15},
+      {id:'adm-06',name:'Lucy',group:'admin',hours:'BANK',contractHours:0},
+      {id:'cli-01',name:'Morag',group:'clinical',contractHours:37.5},
+      {id:'cli-02',name:'Islay',group:'clinical',contractHours:25},
+      {id:'cli-03',name:'Oksana',group:'clinical',contractHours:37.5},
+      {id:'cli-04',name:'Christina',group:'clinical',contractHours:37.5},
+      {id:'cli-05',name:'Cezary',group:'clinical',contractHours:37.5},
+      {id:'cli-06',name:'Piel',group:'clinical',contractHours:37.5},
+      {id:'cli-07',name:'Inez',group:'clinical',contractHours:30},
+      {id:'cli-08',name:'Laura',group:'clinical',contractHours:36},
+      {id:'cli-09',name:'Kerry Ann',group:'clinical',contractHours:33},
+      {id:'cli-10',name:'Wojtek',group:'clinical',contractHours:37.5},
+      {id:'bnk-01',name:'Gleb',group:'bank',department:''},
+      {id:'bnk-02',name:'Rona',group:'bank',department:''},
+      {id:'bnk-03',name:'Sybil',group:'bank',department:''},
+      {id:'bnk-04',name:'Gomes',group:'bank',department:''},
+      {id:'bnk-05',name:'Myron',group:'bank',department:''},
+      {id:'bnk-06',name:'Claudia',group:'bank',department:'OPD'},
+      {id:'bnk-07',name:'Louise',group:'bank',department:'OPD'},
+      {id:'bnk-08',name:'Sally',group:'bank',department:'OPD/Ward'},
+      {id:'bnk-09',name:'Jo',group:'bank',department:'OPD'},
+      {id:'bnk-10',name:'Eve',group:'bank',department:'Ward'},
+      {id:'bnk-11',name:'Damien',group:'bank',department:'Ward'},
+      {id:'bnk-12',name:'Draga',group:'bank',department:'Ward'},
+      {id:'bnk-13',name:'Irina',group:'bank',department:'Ward'},
+      {id:'bnk-14',name:'Olga',group:'bank',department:'ODP'},
+      {id:'bnk-15',name:'Ashleigh',group:'bank',department:'ODP'},
+      {id:'bnk-16',name:'Steve G',group:'bank',department:'ODP'},
+      {id:'bnk-17',name:'Elisabeth',group:'bank',department:'TH'},
+      {id:'bnk-18',name:'Clare',group:'bank',department:'Scrub/Rec'},
+      {id:'bnk-19',name:'Isabella',group:'bank',department:'REC'},
+      {id:'bnk-20',name:'Maxine',group:'bank',department:'ODP'},
+      {id:'bnk-21',name:'Fiona B',group:'bank',department:'Scrub'},
+      {id:'bnk-22',name:'Carl',group:'bank',department:'TH'},
+      {id:'bnk-23',name:'Mariam',group:'bank',department:''},
+    ];
+    populateLeaveStaffDropdown();
+    renderRota();
+    renderTheatre();
+  }
+});
+</script>
+</body>
+</html>
