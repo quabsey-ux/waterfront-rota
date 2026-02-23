@@ -43,9 +43,10 @@
 
     /* Rota Grid */
     .rota-grid { background: #fff; border-radius: 12px; border: 1px solid #E5E7EB; overflow: hidden; }
+    .rota-grid-scroll { overflow-x: auto; max-height: calc(100vh - 200px); overflow-y: auto; }
     .rota-grid table { width: 100%; border-collapse: collapse; min-width: 850px; }
-    .rota-grid thead th { padding: 10px 8px; font-size: 12px; font-weight: 600; background: #1E3A5F; color: #fff; text-align: center; }
-    .rota-grid thead th:first-child { text-align: left; padding-left: 12px; width: 155px; position: sticky; left: 0; z-index: 2; background: #1E3A5F; }
+    .rota-grid thead th { padding: 10px 8px; font-size: 12px; font-weight: 600; background: #1E3A5F; color: #fff; text-align: center; position: sticky; top: 0; z-index: 3; }
+    .rota-grid thead th:first-child { text-align: left; padding-left: 12px; width: 155px; position: sticky; left: 0; top: 0; z-index: 4; background: #1E3A5F; }
     .rota-grid thead th:last-child { width: 60px; }
     .rota-grid tbody td { padding: 3px; border-bottom: 1px solid #F3F4F6; }
     .rota-grid tbody td:first-child { padding: 6px 12px; position: sticky; left: 0; background: #fff; z-index: 1; border-right: 1px solid #E5E7EB; }
@@ -57,7 +58,7 @@
     .hours-over { color: #DC2626; }
 
     /* Section headers */
-    .section-header td { padding: 10px 12px 6px !important; font-weight: 700; font-size: 13px; background: #F9FAFB !important; letter-spacing: 0.5px; border-bottom: 2px solid !important; }
+    .section-header td { padding: 10px 12px 6px !important; font-weight: 700; font-size: 13px; background: #F9FAFB !important; letter-spacing: 0.5px; border-bottom: 2px solid !important; position: sticky; top: 37px; z-index: 2; }
     .section-header.admin td { color: #1E40AF; border-color: #1E40AF !important; }
     .section-header.clinical td { color: #065F46; border-color: #065F46 !important; }
     .section-header.bank td { color: #9D174D; border-color: #9D174D !important; }
@@ -133,12 +134,37 @@
     .config-banner p { font-size: 13px; color: #92400E; line-height: 1.6; }
     .config-banner code { background: #FDE68A; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 
+    /* Today highlight column */
+    .rota-grid thead th.today-col { background: #1E40AF; box-shadow: inset 0 -3px 0 #FCD34D; }
+    .rota-grid tbody td.today-col { background: #FEFCE8 !important; }
+    .rota-grid tbody td.today-col .shift-cell { box-shadow: 0 0 0 1px rgba(245,158,11,0.3); }
+
+    /* Summary bar */
+    .summary-bar { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+    .summary-chip { background: #fff; border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px 14px; font-size: 12px; color: #374151; display: flex; align-items: center; gap: 6px; }
+    .summary-chip .num { font-weight: 700; font-size: 16px; }
+    .summary-chip.working .num { color: #10B981; }
+    .summary-chip.off .num { color: #6B7280; }
+    .summary-chip.leave .num { color: #F59E0B; }
+    .summary-chip.bank .num { color: #9D174D; }
+
     /* Responsive */
     @media (max-width: 768px) {
       .content { padding: 12px; }
       .week-nav { flex-direction: column; align-items: flex-start; }
+      .header h1 { font-size: 15px; }
+      .header .subtitle { display: none; }
+      .tabs { padding: 6px 12px; }
+      .tab { padding: 7px 10px; font-size: 12px; }
+      .rota-grid thead th { padding: 8px 4px; font-size: 10px; }
+      .rota-grid thead th:first-child { width: 110px; min-width: 110px; }
+      .shift-cell { font-size: 10px; min-height: 32px; padding: 4px 1px; }
+      .staff-name { font-size: 12px; }
+      .summary-bar { gap: 8px; }
+      .summary-chip { padding: 6px 10px; font-size: 11px; }
+      .summary-chip .num { font-size: 14px; }
     }
-    @media print { .no-print { display: none !important; } .content { padding: 0; } }
+    @media print { .no-print { display: none !important; } .content { padding: 0; } .rota-grid-scroll { max-height: none !important; overflow: visible !important; } }
 
     /* Select dropdown */
     select.filter { padding: 7px 10px; border-radius: 8px; border: 1px solid #D1D5DB; font-size: 12px; background: #fff; }
@@ -223,15 +249,19 @@
         </div>
       </div>
 
-      <div class="rota-grid" style="overflow-x:auto">
-        <table>
-          <thead><tr>
-            <th>Staff</th>
-            <th id="hd-0"></th><th id="hd-1"></th><th id="hd-2"></th><th id="hd-3"></th><th id="hd-4"></th><th id="hd-5"></th><th id="hd-6"></th>
-            <th>HRS</th>
-          </tr></thead>
-          <tbody id="rota-body"></tbody>
-        </table>
+      <div class="summary-bar" id="summary-bar"></div>
+
+      <div class="rota-grid">
+        <div class="rota-grid-scroll" id="rota-scroll">
+          <table>
+            <thead><tr>
+              <th>Staff</th>
+              <th id="hd-0"></th><th id="hd-1"></th><th id="hd-2"></th><th id="hd-3"></th><th id="hd-4"></th><th id="hd-5"></th><th id="hd-6"></th>
+              <th>HRS</th>
+            </tr></thead>
+            <tbody id="rota-body"></tbody>
+          </table>
+        </div>
       </div>
 
       <div style="margin-top:14px">
@@ -254,14 +284,16 @@
           <button class="nav-btn" onclick="changeWeek(1)">›</button>
         </div>
       </div>
-      <div class="rota-grid" style="overflow-x:auto">
-        <table>
-          <thead><tr>
-            <th>Room / Theatre</th>
-            <th id="ht-0"></th><th id="ht-1"></th><th id="ht-2"></th><th id="ht-3"></th><th id="ht-4"></th><th id="ht-5"></th><th id="ht-6"></th>
-          </tr></thead>
-          <tbody id="theatre-body"></tbody>
-        </table>
+      <div class="rota-grid">
+        <div class="rota-grid-scroll" style="max-height:calc(100vh - 280px)">
+          <table>
+            <thead><tr>
+              <th>Room / Theatre</th>
+              <th id="ht-0"></th><th id="ht-1"></th><th id="ht-2"></th><th id="ht-3"></th><th id="ht-4"></th><th id="ht-5"></th><th id="ht-6"></th>
+            </tr></thead>
+            <tbody id="theatre-body"></tbody>
+          </table>
+        </div>
       </div>
       <p style="margin-top:12px;font-size:12px;color:#6B7280">Enter consultant name, time & type (e.g. "AQ GA", "OMAR 12-5:30", "KATY 10-1").</p>
     </div>
@@ -557,9 +589,54 @@ function parseHours(str) {
   return Math.max(0, diff > 6 ? diff - 0.5 : diff);
 }
 
+function getTodayDayIndex() {
+  const dates = getWeekDates();
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  for (let i = 0; i < dates.length; i++) {
+    const d = new Date(dates[i]);
+    d.setHours(0,0,0,0);
+    if (d.getTime() === today.getTime()) return i;
+  }
+  return -1;
+}
+
+function renderSummary() {
+  const bar = document.getElementById('summary-bar');
+  if (!bar) return;
+  const todayIdx = getTodayDayIndex();
+  const todayDay = todayIdx >= 0 ? DAYS[todayIdx] : null;
+
+  let working = 0, off = 0, onLeave = 0, bankIn = 0;
+  staff.forEach(s => {
+    const shifts = currentRota[s.id] || {};
+    const val = todayDay ? (shifts[todayDay] || '') : '';
+    const v = val.toUpperCase().trim();
+    if (!v || v === '—') { off++; }
+    else if (v === 'DO' || v.startsWith('DO ')) { off++; }
+    else if (v.startsWith('A/L') || v === 'SICK') { onLeave++; }
+    else {
+      working++;
+      if (s.group === 'bank') bankIn++;
+    }
+  });
+
+  if (todayDay) {
+    bar.innerHTML = `
+      <div class="summary-chip working"><span class="num">${working}</span> Working today</div>
+      <div class="summary-chip bank"><span class="num">${bankIn}</span> Bank in</div>
+      <div class="summary-chip leave"><span class="num">${onLeave}</span> On leave</div>
+      <div class="summary-chip off"><span class="num">${off}</span> Off / Unassigned</div>
+    `;
+  } else {
+    bar.innerHTML = '';
+  }
+}
+
 function renderRota() {
   const filter = document.getElementById('group-filter').value;
   const tbody = document.getElementById('rota-body');
+  const todayIdx = getTodayDayIndex();
   let html = '';
 
   const groups = {
@@ -568,19 +645,26 @@ function renderRota() {
     bank: staff.filter(s => s.group === 'bank'),
   };
 
+  // Apply today class to header columns
+  DAYS.forEach((d, i) => {
+    const th = document.getElementById('hd-' + i);
+    if (th) th.className = i === todayIdx ? 'today-col' : '';
+  });
+
   function renderGroup(groupName, label, colorClass, staffList) {
     if (filter !== 'all' && filter !== groupName) return '';
-    let h = `<tr class="section-header ${colorClass}"><td colspan="9">${label}</td></tr>`;
+    let h = `<tr class="section-header ${colorClass}"><td colspan="9">${label} (${staffList.length})</td></tr>`;
     staffList.forEach(s => {
       const shifts = currentRota[s.id] || {};
       let totalHrs = 0;
       h += '<tr>';
       h += `<td><div class="staff-name">${s.name}</div><div class="staff-meta">${s.hours || (s.contractHours ? s.contractHours + 'h/wk' : s.department || '')}</div></td>`;
-      DAYS.forEach(d => {
+      DAYS.forEach((d, di) => {
         const val = shifts[d] || '';
         totalHrs += parseHours(val);
         const cls = getShiftClass(val);
-        h += `<td><div class="shift-cell ${cls}" onclick="editShift('${s.id}','${d}',this)" title="${val || 'Click to assign'}">${val || '—'}</div></td>`;
+        const todayCls = di === todayIdx ? ' today-col' : '';
+        h += `<td class="${todayCls}"><div class="shift-cell ${cls}" onclick="editShift('${s.id}','${d}',this)" title="${val || 'Click to assign'}">${val || '—'}</div></td>`;
       });
       const hrs = Math.round(totalHrs * 10) / 10;
       const isOver = s.contractHours && hrs > parseFloat(s.contractHours) + 5;
@@ -592,14 +676,14 @@ function renderRota() {
     if (groupName === 'clinical' && (filter === 'all' || filter === 'clinical')) {
       ['OPEN/CLOSE', 'CLEAN'].forEach(label => {
         h += `<tr class="section-header ops"><td colspan="9" style="padding:6px 12px !important;font-size:12px">${label}</td></tr>`;
-        // These use the rota storage with special IDs
         const id = 'ops-' + label.toLowerCase().replace(/\//g,'-');
         const shifts = currentRota[id] || {};
         h += '<tr>';
         h += `<td><div class="staff-name" style="color:#6B7280;font-size:12px">${label}</div></td>`;
-        DAYS.forEach(d => {
+        DAYS.forEach((d, di) => {
           const val = shifts[d] || '';
-          h += `<td><div class="shift-cell ${val ? 'other' : 'empty'}" onclick="editShift('${id}','${d}',this)">${val || '—'}</div></td>`;
+          const todayCls = di === todayIdx ? ' today-col' : '';
+          h += `<td class="${todayCls}"><div class="shift-cell ${val ? 'other' : 'empty'}" onclick="editShift('${id}','${d}',this)">${val || '—'}</div></td>`;
         });
         h += '<td></td></tr>';
       });
@@ -612,6 +696,7 @@ function renderRota() {
   html += renderGroup('bank', 'BANK STAFF', 'bank', groups.bank);
 
   tbody.innerHTML = html;
+  renderSummary();
 }
 
 function renderTheatre() {
@@ -1060,6 +1145,30 @@ function renderRotaLegend() {
     `<div class="legend-item"><div class="shift-cell ${item.cls}" style="min-height:28px;font-size:11px">${item.label}</div><p>${item.desc}</p></div>`
   ).join('');
 }
+
+// ── MOBILE SWIPE GESTURE ─────────────────────────────────────────
+let touchStartX = 0;
+let touchStartY = 0;
+document.addEventListener('touchstart', e => {
+  touchStartX = e.changedTouches[0].screenX;
+  touchStartY = e.changedTouches[0].screenY;
+}, { passive: true });
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].screenX - touchStartX;
+  const dy = e.changedTouches[0].screenY - touchStartY;
+  if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    if (e.target.closest('.rota-grid-scroll')) return;
+    if (dx < 0) changeWeek(1);
+    else changeWeek(-1);
+  }
+}, { passive: true });
+
+// ── KEYBOARD NAV ─────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'ArrowLeft') { changeWeek(-1); e.preventDefault(); }
+  if (e.key === 'ArrowRight') { changeWeek(1); e.preventDefault(); }
+});
 
 // ── INIT ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
