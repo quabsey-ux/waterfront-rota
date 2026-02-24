@@ -92,6 +92,9 @@ function handleRequest(e) {
         case 'getConfig': result = getAppConfig(); break;
         case 'saveConfig': result = saveAppConfig(JSON.parse(params.config)); break;
 
+        // Combined initial load — returns all data in ONE request
+        case 'getInit': result = getInit(params.weekKey); break;
+
         default: result = { error: 'Unknown action: ' + action };
       }
     } finally {
@@ -108,6 +111,26 @@ function handleRequest(e) {
       .createTextOutput(JSON.stringify({ error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// ── COMBINED INITIAL LOAD (single request for all startup data) ───
+function getInit(weekKey) {
+  // Fetch everything the app needs to render in ONE call
+  // This eliminates multiple cold-start round-trips
+  const staffResult = getStaff();
+  const leaveResult = getLeave();
+  const rotaResult = getRota(weekKey);
+  const theatreResult = getTheatre(weekKey);
+  const configResult = getAppConfig();
+  return {
+    staff: staffResult.staff || [],
+    leave: leaveResult.requests || [],
+    rota: rotaResult.shifts || {},
+    published: rotaResult.published || false,
+    theatre: theatreResult.schedule || {},
+    config: configResult || {},
+    timestamp: new Date().toISOString()
+  };
 }
 
 // ── STAFF FUNCTIONS ───────────────────────────────────────────────

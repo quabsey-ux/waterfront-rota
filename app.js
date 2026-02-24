@@ -179,26 +179,115 @@
     updateWeek();
   }
 
-  // ── DATA LOADING (Parallel + Cached) ──────────────────────────
+  // ── LOCAL STORAGE CACHE (instant load on revisit) ────────────
+  var LS_KEY = 'wfr_cache';
+  var LS_TTL = 5 * 60 * 1000; // 5 minute TTL
+
+  function saveToLocalStorage(weekKey, data) {
+    try {
+      var payload = {
+        weekKey: weekKey,
+        staff: data.staff || state.staff,
+        leave: data.leave || state.leaveRequests,
+        rota: data.rota || state.currentRota,
+        published: data.published != null ? data.published : state.isPublished,
+        theatre: data.theatre || state.currentTheatre,
+        ts: Date.now()
+      };
+      localStorage.setItem(LS_KEY, JSON.stringify(payload));
+    } catch (e) { /* quota exceeded — ignore */ }
+  }
+
+  function loadFromLocalStorage(weekKey) {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (!raw) return null;
+      var d = JSON.parse(raw);
+      if (d.weekKey !== weekKey) return null;
+      if (Date.now() - d.ts > LS_TTL) return null;
+      return d;
+    } catch (e) { return null; }
+  }
+
+  // ── DATA LOADING (Single request + cached) ──────────────────
   function loadData() {
-    showToast('Loading data...', 'info');
+    var wk = getWeekKey();
+
+    // 1. Try localStorage for INSTANT render while fresh data loads
+    var cached = loadFromLocalStorage(wk);
+    if (cached) {
+      state.staff = cached.staff || [];
+      state.leaveRequests = cached.leave || [];
+      state.currentRota = cached.rota || {};
+      state.isPublished = cached.published || false;
+      state.currentTheatre = cached.theatre || {};
+      state.cache[wk] = { shifts: state.currentRota, published: state.isPublished, theatre: state.currentTheatre };
+      populateLeaveStaffDropdown();
+      updatePublishStatus();
+      renderRota();
+      renderTheatre();
+      renderLeave();
+      hideLoading();
+    }
+
+    // 2. Always fetch fresh data via single getInit call
+    showToast(cached ? 'Refreshing...' : 'Loading data...', 'info');
+
+    return api('getInit', { weekKey: wk }).then(function (result) {
+      if (!result || result.error) {
+        // Fallback: try individual calls if getInit not deployed yet
+        return loadDataLegacy();
+      }
+
+      state.staff = result.staff || [];
+      state.leaveRequests = result.leave || [];
+      state.currentRota = result.rota || {};
+      state.isPublished = result.published || false;
+      state.currentTheatre = result.theatre || {};
+      if (result.config) {
+        state.settings = result.config;
+        state.settingsLoaded = true;
+      }
+
+      // Cache in memory + localStorage
+      state.cache[wk] = { shifts: state.currentRota, published: state.isPublished, theatre: state.currentTheatre };
+      saveToLocalStorage(wk, result);
+
+      populateLeaveStaffDropdown();
+      updatePublishStatus();
+      renderRota();
+      renderTheatre();
+      renderLeave();
+      hideLoading();
+      showToast('Data loaded', 'success');
+    });
+  }
+
+  // Fallback if getInit isn't deployed yet (backward compatible)
+  function loadDataLegacy() {
     return Promise.all([
       api('getStaff'),
-      api('getLeave')
+      api('getLeave'),
+      api('getRota', { weekKey: getWeekKey() }),
+      api('getTheatre', { weekKey: getWeekKey() })
     ]).then(function (results) {
-      var staffResult = results[0];
-      var leaveResult = results[1];
+      var wk = getWeekKey();
+      if (results[0] && results[0].staff) state.staff = results[0].staff;
+      if (results[1] && results[1].requests) state.leaveRequests = results[1].requests;
+      if (results[2]) {
+        state.currentRota = results[2].shifts || {};
+        state.isPublished = results[2].published || false;
+      }
+      if (results[3]) state.currentTheatre = results[3].schedule || {};
 
-      if (staffResult && staffResult.staff) {
-        state.staff = staffResult.staff;
-        populateLeaveStaffDropdown();
-      }
-      if (leaveResult && leaveResult.requests) {
-        state.leaveRequests = leaveResult.requests;
-        renderLeave();
-      }
-      return loadWeekData();
-    }).then(function () {
+      state.cache[wk] = { shifts: state.currentRota, published: state.isPublished, theatre: state.currentTheatre };
+      saveToLocalStorage(wk, {});
+
+      populateLeaveStaffDropdown();
+      updatePublishStatus();
+      renderRota();
+      renderTheatre();
+      renderLeave();
       hideLoading();
       showToast('Data loaded', 'success');
     });
@@ -207,7 +296,7 @@
   function loadWeekData() {
     var wk = getWeekKey();
 
-    // Check cache
+    // Check memory cache
     if (state.cache[wk]) {
       var cached = state.cache[wk];
       state.currentRota = cached.shifts || {};
