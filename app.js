@@ -717,7 +717,12 @@
         state.isPublished = true;
         invalidateCache(getWeekKey());
         updatePublishStatus();
-        showToast('Rota published! ' + result.emailsSent + ' emails sent', 'success');
+        var msg = 'Rota published! ' + result.emailsSent + ' emails sent';
+        if (result.errors && result.errors.length) msg += ' (' + result.errors.length + ' failed)';
+        showToast(msg, result.emailsSent > 0 ? 'success' : 'warning');
+        // Log debug info to console for troubleshooting
+        if (result.debug) console.log('Publish debug:', result.debug);
+        if (result.errors && result.errors.length) console.warn('Publish errors:', result.errors);
       } else {
         showToast('Failed to publish: ' + (result ? result.error : 'Unknown error'), 'error');
       }

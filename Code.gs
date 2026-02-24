@@ -466,37 +466,46 @@ function publishRota(weekKey) {
   const staffResult = getStaff();
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   let emailsSent = 0;
+  const errors = [];
+  const debug = [];
 
   // Debug logging
   const staffWithEmail = staffResult.staff.filter(s => s.email && String(s.email).trim() !== '');
-  Logger.log('publishRota: ' + staffResult.staff.length + ' total staff, ' + staffWithEmail.length + ' with emails');
+  debug.push(staffResult.staff.length + ' total staff, ' + staffWithEmail.length + ' with emails');
+  debug.push('Shift IDs in rota: ' + Object.keys(rotaData.shifts || {}).length);
+
+  // Check remaining email quota
+  const emailQuota = MailApp.getRemainingDailyQuota();
+  debug.push('Email quota remaining: ' + emailQuota);
 
   // Send individual emails to each staff member with shifts
   staffResult.staff.forEach(staff => {
     const shifts = rotaData.shifts[staff.id];
     if (!shifts || !staff.email || String(staff.email).trim() === '') {
-      if (staff.email) Logger.log('Skipping ' + staff.name + ': no shifts for this week');
       return;
     }
 
     const hasShifts = days.some(d => shifts[d] && shifts[d] !== '');
-    if (!hasShifts) { Logger.log('Skipping ' + staff.name + ': all shift cells empty'); return; }
+    if (!hasShifts) { debug.push('Skipping ' + staff.name + ': all shift cells empty'); return; }
 
+    debug.push('Attempting email to ' + staff.name + ' (' + staff.email + ')');
     try {
       MailApp.sendEmail({
         to: staff.email,
-        subject: `Your Rota — Week of ${weekKey}`,
+        subject: 'Your Rota — Week of ' + weekKey,
         htmlBody: buildRotaEmail(staff, shifts, weekKey),
         name: FROM_NAME
       });
       emailsSent++;
       logEmail('Rota published', staff.email, 'Week of ' + weekKey);
+      debug.push('SUCCESS: sent to ' + staff.email);
     } catch (e) {
-      Logger.log('Failed to send rota to ' + staff.email + ': ' + e.message);
+      errors.push(staff.name + ' (' + staff.email + '): ' + e.message);
+      debug.push('FAILED: ' + staff.email + ' — ' + e.message);
     }
   });
 
-  return { success: true, emailsSent, weekKey };
+  return { success: true, emailsSent, weekKey, debug, errors };
 }
 
 function checkAndNotifyChange(data) {
