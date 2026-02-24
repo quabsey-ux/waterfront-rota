@@ -8,6 +8,17 @@ const SPREADSHEET_ID = '14Ig1OgLPvD3rXQrOeb04p_bTil5nBYeqpweYDzv8m34';
 const MANAGER_EMAILS = ['quabsey@gmail.com']; // Add more manager emails as needed
 const FROM_NAME = 'Waterfront Rota System';
 
+// ── PERFORMANCE: Spreadsheet cache (per execution) ─────────────────
+let _ssCache = null;
+function getSpreadsheet() {
+  if (!_ssCache) _ssCache = SpreadsheetApp.openById(SPREADSHEET_ID);
+  return _ssCache;
+}
+
+function getSheet(name) {
+  return getSpreadsheet().getSheetByName(name);
+}
+
 // Helper: normalize cell value to string (handles Google Sheets Date auto-conversion)
 function cellStr(val) {
   if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -37,40 +48,54 @@ function handleRequest(e) {
 
   try {
     let result;
-    switch (action) {
-      // Staff
-      case 'getStaff': result = getStaff(); break;
-      case 'addStaff': result = addStaff(JSON.parse(params.data)); break;
-      case 'updateStaff': result = updateStaff(JSON.parse(params.data)); break;
-      case 'deleteStaff': result = deleteStaff(params.id); break;
+    // Use lock for write operations to prevent race conditions
+    const writeActions = ['addStaff','updateStaff','deleteStaff','saveShift','saveMultipleShifts','copyWeek','saveTheatre','submitLeave','approveLeave','rejectLeave','publishRota','saveConfig'];
+    const needsLock = writeActions.indexOf(action) >= 0;
+    let lock = null;
 
-      // Rota
-      case 'getRota': result = getRota(params.weekKey); break;
-      case 'saveShift': result = saveShift(JSON.parse(params.data)); break;
-      case 'saveMultipleShifts': result = saveMultipleShifts(JSON.parse(params.data)); break;
-      case 'copyWeek': result = copyWeek(params.fromWeek, params.toWeek); break;
+    if (needsLock) {
+      lock = LockService.getScriptLock();
+      lock.tryLock(10000); // Wait up to 10 seconds
+    }
 
-      // Theatre
-      case 'getTheatre': result = getTheatre(params.weekKey); break;
-      case 'saveTheatre': result = saveTheatre(JSON.parse(params.data)); break;
+    try {
+      switch (action) {
+        // Staff
+        case 'getStaff': result = getStaff(); break;
+        case 'addStaff': result = addStaff(JSON.parse(params.data)); break;
+        case 'updateStaff': result = updateStaff(JSON.parse(params.data)); break;
+        case 'deleteStaff': result = deleteStaff(params.id); break;
 
-      // Leave
-      case 'getLeave': result = getLeave(); break;
-      case 'submitLeave': result = submitLeave(JSON.parse(params.data)); break;
-      case 'approveLeave': result = approveLeave(params.id); break;
-      case 'rejectLeave': result = rejectLeave(params.id); break;
+        // Rota
+        case 'getRota': result = getRota(params.weekKey); break;
+        case 'saveShift': result = saveShift(JSON.parse(params.data)); break;
+        case 'saveMultipleShifts': result = saveMultipleShifts(JSON.parse(params.data)); break;
+        case 'copyWeek': result = copyWeek(params.fromWeek, params.toWeek); break;
 
-      // Publish & Notify
-      case 'publishRota': result = publishRota(params.weekKey); break;
+        // Theatre
+        case 'getTheatre': result = getTheatre(params.weekKey); break;
+        case 'saveTheatre': result = saveTheatre(JSON.parse(params.data)); break;
 
-      // Email Log
-      case 'getEmailLog': result = getEmailLog(); break;
+        // Leave
+        case 'getLeave': result = getLeave(); break;
+        case 'submitLeave': result = submitLeave(JSON.parse(params.data)); break;
+        case 'approveLeave': result = approveLeave(params.id); break;
+        case 'rejectLeave': result = rejectLeave(params.id); break;
 
-      // Config / Settings
-      case 'getConfig': result = getAppConfig(); break;
-      case 'saveConfig': result = saveAppConfig(JSON.parse(params.config)); break;
+        // Publish & Notify
+        case 'publishRota': result = publishRota(params.weekKey); break;
 
-      default: result = { error: 'Unknown action: ' + action };
+        // Email Log
+        case 'getEmailLog': result = getEmailLog(); break;
+
+        // Config / Settings
+        case 'getConfig': result = getAppConfig(); break;
+        case 'saveConfig': result = saveAppConfig(JSON.parse(params.config)); break;
+
+        default: result = { error: 'Unknown action: ' + action };
+      }
+    } finally {
+      if (lock) lock.releaseLock();
     }
 
     return ContentService
@@ -78,15 +103,16 @@ function handleRequest(e) {
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
+    Logger.log('Error in ' + action + ': ' + err.message + '\n' + err.stack);
     return ContentService
-      .createTextOutput(JSON.stringify({ error: err.message, stack: err.stack }))
+      .createTextOutput(JSON.stringify({ error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
 // ── STAFF FUNCTIONS ───────────────────────────────────────────────
 function getStaff() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_STAFF);
+  const sheet = getSheet(SHEET_STAFF);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const staff = [];
@@ -102,7 +128,7 @@ function getStaff() {
 }
 
 function addStaff(staffData) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_STAFF);
+  const sheet = getSheet(SHEET_STAFF);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   const newRow = headers.map(h => staffData[h] || '');
   // Generate ID
@@ -112,7 +138,7 @@ function addStaff(staffData) {
 }
 
 function updateStaff(staffData) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_STAFF);
+  const sheet = getSheet(SHEET_STAFF);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
 
@@ -130,7 +156,7 @@ function updateStaff(staffData) {
 }
 
 function deleteStaff(id) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_STAFF);
+  const sheet = getSheet(SHEET_STAFF);
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(id)) {
@@ -143,7 +169,7 @@ function deleteStaff(id) {
 
 // ── ROTA FUNCTIONS ────────────────────────────────────────────────
 function getRota(weekKey) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_ROTA);
+  const sheet = getSheet(SHEET_ROTA);
   const data = sheet.getDataRange().getValues();
   const shifts = {};
 
@@ -164,7 +190,7 @@ function getRota(weekKey) {
   }
 
   // Check if published
-  const configSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CONFIG);
+  const configSheet = getSheet(SHEET_CONFIG);
   const configData = configSheet.getDataRange().getValues();
   let published = false;
   for (let i = 1; i < configData.length; i++) {
@@ -179,7 +205,7 @@ function getRota(weekKey) {
 
 function saveShift(data) {
   // data = { weekKey, staffId, day, value }
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_ROTA);
+  const sheet = getSheet(SHEET_ROTA);
   const allData = sheet.getDataRange().getValues();
   const dayIndex = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(data.day) + 2; // +2 for weekKey and staffId columns
 
@@ -203,7 +229,7 @@ function saveShift(data) {
 
 function saveMultipleShifts(data) {
   // data = { weekKey, shifts: { staffId: { Mon: '...', Tue: '...', ... } } }
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_ROTA);
+  const sheet = getSheet(SHEET_ROTA);
   const allData = sheet.getDataRange().getValues();
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -240,7 +266,7 @@ function copyWeek(fromWeek, toWeek) {
 
 // ── THEATRE FUNCTIONS ─────────────────────────────────────────────
 function getTheatre(weekKey) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_THEATRE);
+  const sheet = getSheet(SHEET_THEATRE);
   const data = sheet.getDataRange().getValues();
   const schedule = {};
 
@@ -263,7 +289,7 @@ function getTheatre(weekKey) {
 
 function saveTheatre(data) {
   // data = { weekKey, room, day, value }
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_THEATRE);
+  const sheet = getSheet(SHEET_THEATRE);
   const allData = sheet.getDataRange().getValues();
   const dayIndex = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(data.day) + 2;
 
@@ -282,7 +308,7 @@ function saveTheatre(data) {
 
 // ── LEAVE FUNCTIONS ───────────────────────────────────────────────
 function getLeave() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_LEAVE);
+  const sheet = getSheet(SHEET_LEAVE);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const requests = [];
@@ -299,7 +325,7 @@ function getLeave() {
 
 function submitLeave(data) {
   // data = { staffId, staffName, startDate, endDate, type, reason }
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_LEAVE);
+  const sheet = getSheet(SHEET_LEAVE);
   const id = Utilities.getUuid().substring(0, 8);
   const now = new Date().toISOString();
 
@@ -345,7 +371,7 @@ function rejectLeave(id) {
 }
 
 function updateLeaveStatus(id, status) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_LEAVE);
+  const sheet = getSheet(SHEET_LEAVE);
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   const statusCol = headers.indexOf('status') + 1;
@@ -364,7 +390,7 @@ function updateLeaveStatus(id, status) {
       const type = data[i][headers.indexOf('type')];
 
       // Find staff email
-      const staffSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_STAFF);
+      const staffSheet = getSheet(SHEET_STAFF);
       const staffData = staffSheet.getDataRange().getValues();
       const staffHeaders = staffData[0];
       const emailCol = staffHeaders.indexOf('email');
@@ -396,7 +422,7 @@ function updateLeaveStatus(id, status) {
 // ── PUBLISH & NOTIFY ──────────────────────────────────────────────
 function publishRota(weekKey) {
   // Mark as published
-  const configSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CONFIG);
+  const configSheet = getSheet(SHEET_CONFIG);
   const configData = configSheet.getDataRange().getValues();
   let found = false;
   for (let i = 1; i < configData.length; i++) {
@@ -444,7 +470,7 @@ function publishRota(weekKey) {
 
 function checkAndNotifyChange(data) {
   // Check if this week's rota is published
-  const configSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CONFIG);
+  const configSheet = getSheet(SHEET_CONFIG);
   const configData = configSheet.getDataRange().getValues();
   let isPublished = false;
   for (let i = 1; i < configData.length; i++) {
@@ -564,7 +590,7 @@ function buildLeaveDecisionEmail(name, type, startDate, endDate, status) {
 
 // ── CONFIG / SETTINGS ─────────────────────────────────────────────
 function getAppConfig() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CONFIG);
+  const sheet = getSheet(SHEET_CONFIG);
   const data = sheet.getDataRange().getValues();
   const config = { manager_emails: MANAGER_EMAILS, auto_email: true };
 
@@ -581,7 +607,7 @@ function getAppConfig() {
 }
 
 function saveAppConfig(config) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_CONFIG);
+  const sheet = getSheet(SHEET_CONFIG);
   const data = sheet.getDataRange().getValues();
   let foundManagers = false, foundAutoEmail = false;
 
@@ -613,7 +639,7 @@ function getManagerEmails() {
 // ── EMAIL LOG ─────────────────────────────────────────────────────
 function logEmail(type, recipient, details) {
   try {
-    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_LOG);
+    const sheet = getSheet(SHEET_LOG);
     sheet.appendRow([new Date().toISOString(), type, recipient, details]);
   } catch (e) {
     Logger.log('Failed to log email: ' + e.message);
@@ -621,7 +647,7 @@ function logEmail(type, recipient, details) {
 }
 
 function getEmailLog() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_LOG);
+  const sheet = getSheet(SHEET_LOG);
   const data = sheet.getDataRange().getValues();
   const logs = [];
   for (let i = 1; i < data.length; i++) {
@@ -632,9 +658,61 @@ function getEmailLog() {
   return { logs };
 }
 
+// ── WEEKLY REMINDER (Time-driven trigger) ─────────────────────────
+// To enable: Run setupWeeklyReminder() once. It creates a Sunday 6pm trigger.
+function setupWeeklyReminder() {
+  // Remove existing triggers for this function
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'sendWeeklyReminders') ScriptApp.deleteTrigger(t);
+  });
+  // Create new Sunday 6pm trigger
+  ScriptApp.newTrigger('sendWeeklyReminders')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
+    .atHour(18)
+    .create();
+  Logger.log('Weekly reminder trigger created for Sundays at 6pm');
+}
+
+function sendWeeklyReminders() {
+  // Calculate next Monday's date
+  const today = new Date();
+  const daysUntilMonday = (8 - today.getDay()) % 7 || 7;
+  const nextMonday = new Date(today);
+  nextMonday.setDate(today.getDate() + daysUntilMonday);
+  const weekKey = nextMonday.toISOString().slice(0, 10);
+
+  const rotaData = getRota(weekKey);
+  const staffResult = getStaff();
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  let sent = 0;
+
+  staffResult.staff.forEach(staff => {
+    const shifts = rotaData.shifts[staff.id];
+    if (!shifts || !staff.email) return;
+    const hasShifts = days.some(d => shifts[d] && shifts[d] !== '');
+    if (!hasShifts) return;
+
+    try {
+      MailApp.sendEmail({
+        to: staff.email,
+        subject: `Reminder: Your Rota — Week of ${weekKey}`,
+        htmlBody: buildRotaEmail(staff, shifts, weekKey),
+        name: FROM_NAME
+      });
+      sent++;
+    } catch (e) {
+      Logger.log('Reminder failed for ' + staff.email + ': ' + e.message);
+    }
+  });
+
+  logEmail('Weekly reminder', 'All staff', sent + ' reminders sent for week of ' + weekKey);
+  Logger.log('Sent ' + sent + ' weekly reminders for ' + weekKey);
+}
+
 // ── SETUP: Run once to create sheet structure ─────────────────────
 function setupSheets() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getSpreadsheet();
 
   // Staff sheet
   let sheet = ss.getSheetByName(SHEET_STAFF);
