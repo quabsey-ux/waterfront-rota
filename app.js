@@ -171,10 +171,14 @@
       apiWrite('saveConfig', { config: JSON.stringify({ admin_pin: pin, manager_emails: state.settings.manager_emails, auto_email: state.settings.auto_email }) }).then(function (result) {
         if (result && result.success) {
           state.hasPinConfigured = true;
-          state.adminPin = pin;
-          sessionStorage.setItem('wfr_admin_pin', pin);
+          // Clear session so user must enter the NEW pin on next edit
+          state.adminPin = null;
+          state.pinVerified = false;
+          sessionStorage.removeItem('wfr_admin_pin');
           $('admin-pin-input').value = '';
-          showToast('Admin PIN updated', 'success');
+          showToast('PIN set! You\u2019ll be prompted on your next edit.', 'success');
+        } else if (!result) {
+          showToast('Failed to save PIN \u2014 check the console', 'error');
         }
       });
     });
@@ -1199,7 +1203,7 @@
 
       html += '<div class="monthly-week-section">';
       html += '<div class="monthly-week-header' + (isCurrent ? ' current' : '') + '">';
-      html += '<span class="monthly-week-label">' + (isCurrent ? '\u{1F4CD} ' : '') + escapeHtml(weekLabel) + (isCurrent ? ' (This Week)' : '') + '</span>';
+      html += '<span class="monthly-week-label">' + (isCurrent ? '\uD83D\uDCCD ' : '') + escapeHtml(weekLabel) + (isCurrent ? ' (This Week)' : '') + '</span>';
       html += '<span class="monthly-week-status ' + (weekData.published ? 'published' : 'draft') + '">' + (weekData.published ? '\u2713 Published' : '\u25CF Draft') + '</span>';
       html += '</div>';
 
@@ -1366,7 +1370,7 @@
       var isCurrent = w === 0;
 
       html += '<div class="staff-view-week">';
-      html += '<h3>' + (isCurrent ? '\u{1F4CD} ' : '') + escapeHtml(label) + (isCurrent ? ' (This Week)' : '') + '</h3>';
+      html += '<h3>' + (isCurrent ? '\uD83D\uDCCD ' : '') + escapeHtml(label) + (isCurrent ? ' (This Week)' : '') + '</h3>';
       html += '<div class="days">';
 
       DAYS.forEach(function (d, i) {
