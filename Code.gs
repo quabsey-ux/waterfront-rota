@@ -143,7 +143,7 @@ function getStaff() {
   for (let i = 1; i < data.length; i++) {
     if (!data[i][0]) continue; // Skip empty rows
     const row = {};
-    headers.forEach((h, j) => { row[h] = data[i][j]; });
+    headers.forEach((h, j) => { row[String(h).toLowerCase().trim()] = data[i][j]; });
     row._row = i + 1; // Track row number for updates
     staff.push(row);
   }
@@ -153,7 +153,7 @@ function getStaff() {
 function addStaff(staffData) {
   const sheet = getSheet(SHEET_STAFF);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const newRow = headers.map(h => staffData[h] || '');
+  const newRow = headers.map(h => staffData[String(h).toLowerCase().trim()] || '');
   // Generate ID
   newRow[0] = Utilities.getUuid().substring(0, 8);
   sheet.appendRow(newRow);
@@ -168,8 +168,9 @@ function updateStaff(staffData) {
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(staffData.id)) {
       headers.forEach((h, j) => {
-        if (staffData[h] !== undefined) {
-          sheet.getRange(i + 1, j + 1).setValue(staffData[h]);
+        const key = String(h).toLowerCase().trim();
+        if (staffData[key] !== undefined) {
+          sheet.getRange(i + 1, j + 1).setValue(staffData[key]);
         }
       });
       return { success: true };
@@ -466,13 +467,20 @@ function publishRota(weekKey) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   let emailsSent = 0;
 
+  // Debug logging
+  const staffWithEmail = staffResult.staff.filter(s => s.email && String(s.email).trim() !== '');
+  Logger.log('publishRota: ' + staffResult.staff.length + ' total staff, ' + staffWithEmail.length + ' with emails');
+
   // Send individual emails to each staff member with shifts
   staffResult.staff.forEach(staff => {
     const shifts = rotaData.shifts[staff.id];
-    if (!shifts || !staff.email) return;
+    if (!shifts || !staff.email || String(staff.email).trim() === '') {
+      if (staff.email) Logger.log('Skipping ' + staff.name + ': no shifts for this week');
+      return;
+    }
 
     const hasShifts = days.some(d => shifts[d] && shifts[d] !== '');
-    if (!hasShifts) return;
+    if (!hasShifts) { Logger.log('Skipping ' + staff.name + ': all shift cells empty'); return; }
 
     try {
       MailApp.sendEmail({
