@@ -609,10 +609,11 @@
   // ── EDITING: Shift Cells ──────────────────────────────────────
   var shiftPopup = null;
 
-  function showShiftPopup(staffId, day, cellEl) {
+  function showShiftPopup(staffId, day, cellEl, weekKey) {
     closeShiftPopup();
 
     var currentVal = cellEl.textContent === '\u2014' ? '' : cellEl.textContent;
+    var overrideWk = weekKey || null;
     var rect = cellEl.getBoundingClientRect();
 
     var popup = document.createElement('div');
@@ -628,7 +629,7 @@
       btn.title = preset.value;
       btn.onclick = function (e) {
         e.stopPropagation();
-        saveShiftFromPopup(staffId, day, preset.value, currentVal);
+        saveShiftFromPopup(staffId, day, preset.value, currentVal, overrideWk);
       };
       presetsDiv.appendChild(btn);
     });
@@ -643,16 +644,18 @@
     input.placeholder = 'e.g. 07:00-15:00 S';
     input.onkeydown = function (e) {
       if (e.key === 'Enter') {
-        saveShiftFromPopup(staffId, day, input.value, currentVal);
+        saveShiftFromPopup(staffId, day, input.value, currentVal, overrideWk);
       }
       if (e.key === 'Escape') closeShiftPopup();
       if (e.key === 'Tab') {
         e.preventDefault();
-        saveShiftFromPopup(staffId, day, input.value, currentVal);
+        saveShiftFromPopup(staffId, day, input.value, currentVal, overrideWk);
         // Move to next day
         var dayIdx = DAYS.indexOf(day);
         if (dayIdx < 6) {
-          var nextCell = document.querySelector('[data-staff-id="' + staffId + '"][data-day="' + DAYS[dayIdx + 1] + '"]');
+          var sel = '[data-staff-id="' + staffId + '"][data-day="' + DAYS[dayIdx + 1] + '"]';
+          if (overrideWk) sel += '[data-week-key="' + overrideWk + '"]';
+          var nextCell = document.querySelector(sel);
           if (nextCell) setTimeout(function () { nextCell.click(); }, 50);
         }
       }
@@ -664,7 +667,7 @@
     clearBtn.textContent = 'Clear';
     clearBtn.onclick = function (e) {
       e.stopPropagation();
-      saveShiftFromPopup(staffId, day, '', currentVal);
+      saveShiftFromPopup(staffId, day, '', currentVal, overrideWk);
     };
     customRow.appendChild(clearBtn);
     popup.appendChild(customRow);
@@ -695,13 +698,14 @@
     shiftPopup = null;
   }
 
-  function saveShiftFromPopup(staffId, day, value, oldValue) {
+  function saveShiftFromPopup(staffId, day, value, oldValue, overrideWeekKey) {
     closeShiftPopup();
+    var wk = overrideWeekKey || getWeekKey();
 
     // Push to undo stack
     if (value !== oldValue) {
       state.undoStack.push({
-        weekKey: getWeekKey(),
+        weekKey: wk,
         staffId: staffId,
         day: day,
         oldValue: oldValue,
@@ -711,13 +715,35 @@
     }
 
     // Update local state + cache
-    if (!state.currentRota[staffId]) state.currentRota[staffId] = {};
-    state.currentRota[staffId][day] = value;
-    invalidateCache(getWeekKey());
-    renderRota();
+    if (overrideWeekKey) {
+      // Monthly view: update monthlyData and cache
+      if (state.monthlyData[wk]) {
+        if (!state.monthlyData[wk].shifts[staffId]) state.monthlyData[wk].shifts[staffId] = {};
+        state.monthlyData[wk].shifts[staffId][day] = value;
+      }
+      if (state.cache[wk]) {
+        if (!state.cache[wk].shifts) state.cache[wk].shifts = {};
+        if (!state.cache[wk].shifts[staffId]) state.cache[wk].shifts[staffId] = {};
+        state.cache[wk].shifts[staffId][day] = value;
+      }
+      // Also update currentRota if this is the current week
+      if (wk === getWeekKey()) {
+        if (!state.currentRota[staffId]) state.currentRota[staffId] = {};
+        state.currentRota[staffId][day] = value;
+        renderRota();
+      }
+      // Re-render the monthly view
+      if (state.monthlyWeekKeys) renderMonthlyRota(state.monthlyWeekKeys);
+    } else {
+      // Weekly view: original behavior
+      if (!state.currentRota[staffId]) state.currentRota[staffId] = {};
+      state.currentRota[staffId][day] = value;
+      invalidateCache(wk);
+      renderRota();
+    }
 
     // Save to backend
-    apiWrite('saveShift', { data: { weekKey: getWeekKey(), staffId: staffId, day: day, value: value } });
+    apiWrite('saveShift', { data: { weekKey: wk, staffId: staffId, day: day, value: value } });
 
     if (value !== oldValue) {
       showToast('Shift saved', 'success', function () {
@@ -1135,14 +1161,12 @@
     var weekNav = $('week-nav-controls');
 
     if (state.monthlyView) {
-      btn.classList.add('active');
-      btn.innerHTML = '&#x1F4C5; Weekly View';
+      btn.innerHTML = '\u2190 Back to Weekly';
       weeklyGrid.style.display = 'none';
       monthlyGrid.style.display = 'block';
       if (weekNav) weekNav.style.display = 'none';
       loadMonthlyData();
     } else {
-      btn.classList.remove('active');
       btn.innerHTML = '&#x1F4C6; Monthly View';
       weeklyGrid.style.display = 'block';
       monthlyGrid.style.display = 'none';
@@ -1150,40 +1174,51 @@
     }
   }
 
-  function loadMonthlyData() {
-    showToast('Loading monthly rota...', 'info');
-    var promises = [];
+  function getMonthlyWeekKeys() {
     var weekKeys = [];
-
     for (var w = 0; w < 5; w++) {
-      (function (offset) {
-        var today = new Date();
-        var monday = new Date(today);
-        monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + (state.weekOffset + offset) * 7);
-        var wk = monday.toISOString().slice(0, 10);
-        weekKeys.push(wk);
-
-        // Use cached data if available
-        if (state.cache[wk]) {
-          state.monthlyData[wk] = state.cache[wk];
-          promises.push(Promise.resolve());
-        } else {
-          promises.push(
-            api('getRota', { weekKey: wk }).then(function (r) {
-              if (r) {
-                state.monthlyData[wk] = { shifts: r.shifts || {}, published: r.published || false };
-                state.cache[wk] = state.monthlyData[wk];
-              }
-            })
-          );
-        }
-      })(w);
+      var today = new Date();
+      var monday = new Date(today);
+      monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + (state.weekOffset + w) * 7);
+      weekKeys.push(monday.toISOString().slice(0, 10));
     }
+    return weekKeys;
+  }
 
-    Promise.all(promises).then(function () {
-      renderMonthlyRota(weekKeys);
-      showToast('Monthly view loaded', 'success');
+  function loadMonthlyData() {
+    var weekKeys = getMonthlyWeekKeys();
+    state.monthlyWeekKeys = weekKeys;
+
+    // Populate from cache what we already have
+    weekKeys.forEach(function (wk) {
+      if (state.cache[wk]) state.monthlyData[wk] = state.cache[wk];
     });
+
+    // Render immediately with whatever we have (current week is always cached)
+    renderMonthlyRota(weekKeys);
+
+    // Fetch any missing weeks
+    var fetches = [];
+    weekKeys.forEach(function (wk) {
+      if (!state.monthlyData[wk]) {
+        fetches.push(
+          api('getRota', { weekKey: wk }).then(function (r) {
+            if (r) {
+              state.monthlyData[wk] = { shifts: r.shifts || {}, published: r.published || false };
+              state.cache[wk] = state.monthlyData[wk];
+            }
+          })
+        );
+      }
+    });
+
+    if (fetches.length > 0) {
+      showToast('Loading remaining weeks...', 'info');
+      Promise.all(fetches).then(function () {
+        renderMonthlyRota(weekKeys);
+        showToast('Monthly view loaded', 'success');
+      });
+    }
   }
 
   function renderMonthlyRota(weekKeys) {
@@ -1199,13 +1234,21 @@
       sunday.setDate(monday.getDate() + 6);
       var weekLabel = monday.getDate() + ' ' + m[monday.getMonth()] + ' \u2013 ' + sunday.getDate() + ' ' + m[sunday.getMonth()];
       var isCurrent = wIdx === 0 && state.weekOffset === 0;
-      var weekData = state.monthlyData[wk] || { shifts: {}, published: false };
+      var weekData = state.monthlyData[wk];
+      var hasData = !!weekData;
+      if (!weekData) weekData = { shifts: {}, published: false };
 
       html += '<div class="monthly-week-section">';
       html += '<div class="monthly-week-header' + (isCurrent ? ' current' : '') + '">';
-      html += '<span class="monthly-week-label">' + (isCurrent ? '\uD83D\uDCCD ' : '') + escapeHtml(weekLabel) + (isCurrent ? ' (This Week)' : '') + '</span>';
+      html += '<span class="monthly-week-label">' + escapeHtml(weekLabel) + (isCurrent ? ' (This Week)' : '') + '</span>';
       html += '<span class="monthly-week-status ' + (weekData.published ? 'published' : 'draft') + '">' + (weekData.published ? '\u2713 Published' : '\u25CF Draft') + '</span>';
       html += '</div>';
+
+      if (!hasData) {
+        html += '<div style="padding:30px;text-align:center;color:var(--gray-400);font-size:13px"><div class="spinner"></div><p style="margin-top:8px">Loading...</p></div>';
+        html += '</div>';
+        return;
+      }
 
       // Build weekly table
       html += '<div class="rota-grid" style="margin-bottom:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)">';
@@ -1236,7 +1279,7 @@
             var val = shifts[d] || '';
             totalHrs += parseHours(val);
             var cls = getShiftClass(val);
-            h += '<td><div class="shift-cell ' + cls + '" style="cursor:default">' + (escapeHtml(val) || '\u2014') + '</div></td>';
+            h += '<td><div class="shift-cell ' + cls + '" data-staff-id="' + escapeHtml(s.id) + '" data-day="' + d + '" data-week-key="' + escapeHtml(wk) + '" title="' + (escapeHtml(val) || 'Click to assign') + '">' + (escapeHtml(val) || '\u2014') + '</div></td>';
           });
           var hrs = Math.round(totalHrs * 10) / 10;
           h += '<td class="hours-cell"><div class="hours-val">' + (hrs > 0 ? hrs + 'h' : '\u2014') + '</div></td></tr>';
@@ -1429,6 +1472,14 @@
 
   // ── TAB SWITCHING ─────────────────────────────────────────────
   function switchTab(name) {
+    if (name === 'settings') {
+      requirePin(function () { doSwitchTab('settings'); });
+      return;
+    }
+    doSwitchTab(name);
+  }
+
+  function doSwitchTab(name) {
     state.currentTab = name;
     document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
     var activeTab = document.querySelector('.tab[data-tab="' + name + '"]');
@@ -1456,6 +1507,21 @@
         requirePin(function () { showShiftPopup(staffId, day, cell); });
       }
     });
+
+    // Monthly rota grid clicks
+    var monthlyContainer = $('monthly-rota-container');
+    if (monthlyContainer) {
+      monthlyContainer.addEventListener('click', function (e) {
+        var cell = e.target.closest('.shift-cell');
+        if (!cell) return;
+        var staffId = cell.dataset.staffId;
+        var day = cell.dataset.day;
+        var weekKey = cell.dataset.weekKey;
+        if (staffId && day && weekKey) {
+          requirePin(function () { showShiftPopup(staffId, day, cell, weekKey); });
+        }
+      });
+    }
 
     // Theatre grid clicks
     var theatreBody = $('theatre-body');
