@@ -60,6 +60,7 @@
     staffSearch: '',
     monthlyView: false,
     monthlyData: {},  // weekKey → { shifts, published }
+    monthlyWeekKeys: null,
     adminPin: null,
     pinVerified: false,
     hasPinConfigured: false,
@@ -237,6 +238,7 @@
   function changeWeek(dir) {
     state.weekOffset += dir;
     updateWeek();
+    if (state.monthlyView) loadMonthlyData();
   }
 
   // ── LOCAL STORAGE CACHE (instant load on revisit) ────────────
@@ -1704,6 +1706,14 @@
     }
   }
 
+  // ── HELPER: Re-render active rota view ────────────────────────
+  function refreshRotaView() {
+    renderRota();
+    if (state.monthlyView && state.monthlyWeekKeys) {
+      renderMonthlyRota(state.monthlyWeekKeys);
+    }
+  }
+
   // ── EXPOSE TO WINDOW (for HTML onclick handlers) ──────────────
   window.App = {
     changeWeek: changeWeek,
@@ -1727,9 +1737,10 @@
     loadData: loadData,
     exportCSV: exportCSV,
     switchTab: switchTab,
-    goToToday: function () { state.weekOffset = 0; updateWeek(); },
+    goToToday: function () { state.weekOffset = 0; updateWeek(); if (state.monthlyView) loadMonthlyData(); },
     renderStaffTable: renderStaffTable,
     renderRota: renderRota,
+    refreshRotaView: refreshRotaView,
   };
 
   document.addEventListener('DOMContentLoaded', init);
