@@ -662,6 +662,40 @@ select.filter:focus { border-color: var(--primary); }
 /* --- Staff Email Month Button --- */
 .staff-action-btn.email-month { background: #ECFDF5; color: #065F46; }
 
+/* --- Monthly View Toggle --- */
+.action-btn.outline.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* --- Monthly View Sections --- */
+.monthly-week-section {
+  margin-bottom: 24px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+}
+.monthly-week-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--gray-200);
+}
+.monthly-week-header.current {
+  background: #EFF6FF;
+  border-bottom: 2px solid var(--primary);
+}
+.monthly-week-label { font-size: 14px; font-weight: 600; color: var(--gray-900); }
+.monthly-week-status { font-size: 12px; font-weight: 500; }
+.monthly-week-status.published { color: var(--success); }
+.monthly-week-status.draft { color: var(--warning); }
+.monthly-week-section .rota-grid { border: none; border-radius: 0; }
+.monthly-week-section .rota-grid-scroll { max-height: none !important; overflow: visible !important; }
+.monthly-week-section .section-header td { top: 0; }
+
 /* --- Print --- */
 @media print {
   .no-print { display: none !important; }

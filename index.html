@@ -89,37 +89,50 @@
             <option value="bank">Bank Only</option>
           </select>
           <button class="action-btn outline" onclick="App.copyLastWeek()">&#x1F4CB; Copy Last Week</button>
+          <button class="action-btn outline" id="monthly-toggle" onclick="App.toggleMonthlyView()">&#x1F4C6; Monthly View</button>
           <button class="action-btn success" onclick="App.publishRota()">&#x1F4E7; Publish &amp; Notify</button>
         </div>
       </div>
 
-      <div class="summary-bar" id="summary-bar"></div>
+      <!-- Weekly Rota (default) -->
+      <div id="weekly-rota-section">
+        <div class="summary-bar" id="summary-bar"></div>
 
-      <div class="rota-grid">
-        <div class="rota-grid-scroll" id="rota-scroll">
-          <table>
-            <thead><tr>
-              <th>Staff</th>
-              <th id="hd-0"></th><th id="hd-1"></th><th id="hd-2"></th><th id="hd-3"></th><th id="hd-4"></th><th id="hd-5"></th><th id="hd-6"></th>
-              <th>HRS</th>
-            </tr></thead>
-            <tbody id="rota-body"></tbody>
-          </table>
+        <div class="rota-grid">
+          <div class="rota-grid-scroll" id="rota-scroll">
+            <table>
+              <thead><tr>
+                <th>Staff</th>
+                <th id="hd-0"></th><th id="hd-1"></th><th id="hd-2"></th><th id="hd-3"></th><th id="hd-4"></th><th id="hd-5"></th><th id="hd-6"></th>
+                <th>HRS</th>
+              </tr></thead>
+              <tbody id="rota-body"></tbody>
+            </table>
+          </div>
         </div>
+
+        <div style="margin-top:14px">
+          <button class="action-btn outline" style="width:100%;text-align:left;font-size:12px" onclick="App.toggleLegendPanel()" id="legend-toggle">&#x25B6; Show Colour Legend</button>
+          <div id="legend-panel" style="display:none;background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius-lg);padding:16px;margin-top:10px">
+            <div class="legend-grid" id="rota-legend-grid"></div>
+          </div>
+        </div>
+
+        <p style="margin-top:10px;font-size:11px;color:var(--gray-400)" class="no-print">
+          Tip: Click a cell to assign a shift. Use <kbd style="background:var(--gray-100);padding:1px 5px;border-radius:3px;font-size:10px">Tab</kbd> to move right,
+          <kbd style="background:var(--gray-100);padding:1px 5px;border-radius:3px;font-size:10px">Ctrl+Z</kbd> to undo.
+          Staff can view their own rota at <code style="font-size:10px">?staff=Name</code>
+        </p>
       </div>
 
-      <div style="margin-top:14px">
-        <button class="action-btn outline" style="width:100%;text-align:left;font-size:12px" onclick="App.toggleLegendPanel()" id="legend-toggle">&#x25B6; Show Colour Legend</button>
-        <div id="legend-panel" style="display:none;background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius-lg);padding:16px;margin-top:10px">
-          <div class="legend-grid" id="rota-legend-grid"></div>
+      <!-- Monthly Rota (hidden by default, toggled) -->
+      <div id="monthly-rota-section" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <p style="font-size:13px;color:var(--gray-500);margin:0">Showing 5 weeks from current week. Scroll down to see all weeks.</p>
+          <button class="action-btn primary" onclick="App.emailMonthlyOverview()">&#x1F4E7; Email Month to Managers</button>
         </div>
+        <div id="monthly-rota-container"></div>
       </div>
-
-      <p style="margin-top:10px;font-size:11px;color:var(--gray-400)" class="no-print">
-        Tip: Click a cell to assign a shift. Use <kbd style="background:var(--gray-100);padding:1px 5px;border-radius:3px;font-size:10px">Tab</kbd> to move right,
-        <kbd style="background:var(--gray-100);padding:1px 5px;border-radius:3px;font-size:10px">Ctrl+Z</kbd> to undo.
-        Staff can view their own rota at <code style="font-size:10px">?staff=Name</code>
-      </p>
     </div>
 
     <!-- ═══ THEATRE TAB ═══ -->

@@ -58,6 +58,8 @@
     cache: {},
     undoStack: [],
     staffSearch: '',
+    monthlyView: false,
+    monthlyData: {},  // weekKey → { shifts, published }
     adminPin: null,
     pinVerified: false,
     hasPinConfigured: false,
@@ -172,7 +174,6 @@
           state.adminPin = pin;
           sessionStorage.setItem('wfr_admin_pin', pin);
           $('admin-pin-input').value = '';
-          $('pin-status').textContent = 'PIN updated successfully';
           showToast('Admin PIN updated', 'success');
         }
       });
@@ -1121,6 +1122,148 @@
     showToast('Preference saved', 'success');
   }
 
+  // ── MONTHLY VIEW ─────────────────────────────────────────────
+  function toggleMonthlyView() {
+    state.monthlyView = !state.monthlyView;
+    var btn = $('monthly-toggle');
+    var weeklyGrid = $('weekly-rota-section');
+    var monthlyGrid = $('monthly-rota-section');
+    var weekNav = $('week-nav-controls');
+
+    if (state.monthlyView) {
+      btn.classList.add('active');
+      btn.innerHTML = '&#x1F4C5; Weekly View';
+      weeklyGrid.style.display = 'none';
+      monthlyGrid.style.display = 'block';
+      if (weekNav) weekNav.style.display = 'none';
+      loadMonthlyData();
+    } else {
+      btn.classList.remove('active');
+      btn.innerHTML = '&#x1F4C6; Monthly View';
+      weeklyGrid.style.display = 'block';
+      monthlyGrid.style.display = 'none';
+      if (weekNav) weekNav.style.display = '';
+    }
+  }
+
+  function loadMonthlyData() {
+    showToast('Loading monthly rota...', 'info');
+    var promises = [];
+    var weekKeys = [];
+
+    for (var w = 0; w < 5; w++) {
+      (function (offset) {
+        var today = new Date();
+        var monday = new Date(today);
+        monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + (state.weekOffset + offset) * 7);
+        var wk = monday.toISOString().slice(0, 10);
+        weekKeys.push(wk);
+
+        // Use cached data if available
+        if (state.cache[wk]) {
+          state.monthlyData[wk] = state.cache[wk];
+          promises.push(Promise.resolve());
+        } else {
+          promises.push(
+            api('getRota', { weekKey: wk }).then(function (r) {
+              if (r) {
+                state.monthlyData[wk] = { shifts: r.shifts || {}, published: r.published || false };
+                state.cache[wk] = state.monthlyData[wk];
+              }
+            })
+          );
+        }
+      })(w);
+    }
+
+    Promise.all(promises).then(function () {
+      renderMonthlyRota(weekKeys);
+      showToast('Monthly view loaded', 'success');
+    });
+  }
+
+  function renderMonthlyRota(weekKeys) {
+    var container = $('monthly-rota-container');
+    if (!container) return;
+    var filter = $('group-filter') ? $('group-filter').value : 'all';
+    var html = '';
+    var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    weekKeys.forEach(function (wk, wIdx) {
+      var monday = new Date(wk + 'T00:00:00');
+      var sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      var weekLabel = monday.getDate() + ' ' + m[monday.getMonth()] + ' \u2013 ' + sunday.getDate() + ' ' + m[sunday.getMonth()];
+      var isCurrent = wIdx === 0 && state.weekOffset === 0;
+      var weekData = state.monthlyData[wk] || { shifts: {}, published: false };
+
+      html += '<div class="monthly-week-section">';
+      html += '<div class="monthly-week-header' + (isCurrent ? ' current' : '') + '">';
+      html += '<span class="monthly-week-label">' + (isCurrent ? '\u{1F4CD} ' : '') + escapeHtml(weekLabel) + (isCurrent ? ' (This Week)' : '') + '</span>';
+      html += '<span class="monthly-week-status ' + (weekData.published ? 'published' : 'draft') + '">' + (weekData.published ? '\u2713 Published' : '\u25CF Draft') + '</span>';
+      html += '</div>';
+
+      // Build weekly table
+      html += '<div class="rota-grid" style="margin-bottom:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)">';
+      html += '<div class="rota-grid-scroll" style="max-height:none;overflow:visible">';
+      html += '<table><thead><tr><th>Staff</th>';
+
+      DAYS.forEach(function (d, di) {
+        var dt = new Date(monday);
+        dt.setDate(monday.getDate() + di);
+        html += '<th>' + FULL_DAYS[di] + ' ' + dt.getDate() + '</th>';
+      });
+      html += '<th>HRS</th></tr></thead><tbody>';
+
+      var groups = {
+        admin: state.staff.filter(function (s) { return s.group === 'admin'; }),
+        clinical: state.staff.filter(function (s) { return s.group === 'clinical'; }),
+        bank: state.staff.filter(function (s) { return s.group === 'bank'; }),
+      };
+
+      function renderMonthlyGroup(groupName, label, colorClass, staffList) {
+        if (filter !== 'all' && filter !== groupName) return '';
+        var h = '<tr class="section-header ' + colorClass + '"><td colspan="9">' + escapeHtml(label) + ' (' + staffList.length + ')</td></tr>';
+        staffList.forEach(function (s) {
+          var shifts = weekData.shifts[s.id] || {};
+          var totalHrs = 0;
+          h += '<tr><td><div class="staff-name">' + escapeHtml(s.name) + '</div></td>';
+          DAYS.forEach(function (d) {
+            var val = shifts[d] || '';
+            totalHrs += parseHours(val);
+            var cls = getShiftClass(val);
+            h += '<td><div class="shift-cell ' + cls + '" style="cursor:default">' + (escapeHtml(val) || '\u2014') + '</div></td>';
+          });
+          var hrs = Math.round(totalHrs * 10) / 10;
+          h += '<td class="hours-cell"><div class="hours-val">' + (hrs > 0 ? hrs + 'h' : '\u2014') + '</div></td></tr>';
+        });
+        return h;
+      }
+
+      html += renderMonthlyGroup('admin', 'ADMIN', 'admin', groups.admin);
+      html += renderMonthlyGroup('clinical', 'CLINICAL', 'clinical', groups.clinical);
+      html += renderMonthlyGroup('bank', 'BANK STAFF', 'bank', groups.bank);
+
+      html += '</tbody></table></div></div></div>';
+    });
+
+    container.innerHTML = html;
+  }
+
+  function emailMonthlyOverview() {
+    requirePin(function () {
+      if (!confirm('Email the 5-week rota overview to all managers?')) return;
+      showToast('Sending monthly overview to managers...', 'info');
+      apiWrite('publishMonthlyOverview', { startWeekKey: getWeekKey() }).then(function (result) {
+        if (result && result.success) {
+          showToast('Monthly overview sent to ' + (result.count || 0) + ' manager(s)', 'success');
+        } else {
+          showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
+        }
+      });
+    });
+  }
+
   // ── LEGEND ────────────────────────────────────────────────────
   function renderLegend() {
     var grids = ['settings-legend-grid', 'rota-legend-grid'];
@@ -1508,6 +1651,8 @@
     saveNotificationPrefs: saveNotificationPrefs,
     saveAdminPin: saveAdminPin,
     sendMonthlyEmail: sendMonthlyEmail,
+    toggleMonthlyView: toggleMonthlyView,
+    emailMonthlyOverview: emailMonthlyOverview,
     toggleLegendPanel: toggleLegendPanel,
     loadData: loadData,
     exportCSV: exportCSV,

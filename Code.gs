@@ -69,7 +69,7 @@ function handleRequest(e) {
 
   try {
     let result;
-    const writeActions = ['addStaff','updateStaff','deleteStaff','saveShift','saveMultipleShifts','copyWeek','saveTheatre','submitLeave','approveLeave','rejectLeave','publishRota','publishMonthlyRota','saveConfig'];
+    const writeActions = ['addStaff','updateStaff','deleteStaff','saveShift','saveMultipleShifts','copyWeek','saveTheatre','submitLeave','approveLeave','rejectLeave','publishRota','publishMonthlyRota','publishMonthlyOverview','saveConfig'];
     const needsLock = writeActions.indexOf(action) >= 0;
     let lock = null;
 
@@ -111,6 +111,7 @@ function handleRequest(e) {
         // Publish & Notify
         case 'publishRota': result = publishRota(params.weekKey, params.emailMode || 'all'); break;
         case 'publishMonthlyRota': result = publishMonthlyRota(params.staffId, params.startWeekKey); break;
+        case 'publishMonthlyOverview': result = publishMonthlyOverview(params.startWeekKey); break;
 
         // Email Log
         case 'getEmailLog': result = getEmailLog(); break;
@@ -158,7 +159,7 @@ function getInit(weekKey) {
     rota: rotaResult.shifts || {},
     published: rotaResult.published || false,
     theatre: theatreResult.schedule || {},
-    config: configResult || {},
+    config: configResult.config || {},
     has_pin: isPinConfigured(),
     timestamp: new Date().toISOString()
   };
@@ -593,6 +594,113 @@ function publishMonthlyRota(staffId, startWeekKey) {
   } catch (e) {
     return { error: 'Failed to send: ' + e.message };
   }
+}
+
+function publishMonthlyOverview(startWeekKey) {
+  const managerEmails = getManagerEmails();
+  if (!managerEmails || managerEmails.length === 0) return { error: 'No managers configured' };
+
+  const staffResult = getStaff();
+  const staffList = staffResult.staff || [];
+
+  // Calculate 5 consecutive Monday dates
+  const startDate = new Date(startWeekKey + 'T00:00:00');
+  const weekKeys = [];
+  for (let w = 0; w < 5; w++) {
+    const monday = new Date(startDate);
+    monday.setDate(startDate.getDate() + w * 7);
+    weekKeys.push(monday.toISOString().slice(0, 10));
+  }
+
+  // Fetch rota data for all 5 weeks
+  const allWeeksData = {};
+  weekKeys.forEach(wk => {
+    const rotaData = getRota(wk);
+    allWeeksData[wk] = rotaData.shifts || {};
+  });
+
+  const htmlBody = buildMonthlyOverviewEmail(staffList, allWeeksData, weekKeys);
+  let count = 0;
+
+  managerEmails.forEach(mEmail => {
+    try {
+      MailApp.sendEmail({
+        to: mEmail,
+        subject: 'Monthly Rota Overview — 5 Weeks from ' + startWeekKey,
+        htmlBody: htmlBody,
+        name: FROM_NAME
+      });
+      logEmail('Monthly overview', mEmail, '5 weeks from ' + startWeekKey);
+      count++;
+    } catch (e) {
+      Logger.log('Failed to send monthly overview to ' + mEmail + ': ' + e.message);
+    }
+  });
+
+  return { success: true, count: count };
+}
+
+function buildMonthlyOverviewEmail(staffList, allWeeksData, weekKeys) {
+  const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  let html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:900px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E5E7EB">
+    <div style="background:linear-gradient(135deg,#1E3A5F,#1E40AF);padding:20px 24px;color:#fff">
+      <h1 style="margin:0;font-size:20px;font-weight:700">Monthly Rota Overview</h1>
+      <p style="margin:4px 0 0;opacity:0.7;font-size:13px">5-week overview for all staff</p>
+    </div>
+    <div style="padding:20px 24px">`;
+
+  weekKeys.forEach((wk, wIdx) => {
+    const monday = new Date(wk + 'T00:00:00');
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const weekLabel = monday.getDate() + ' ' + m[monday.getMonth()] + ' – ' + sunday.getDate() + ' ' + m[sunday.getMonth()] + ' ' + sunday.getFullYear();
+    const shifts = allWeeksData[wk] || {};
+
+    html += `<h3 style="font-size:14px;font-weight:600;color:#1E40AF;margin:${wIdx > 0 ? '24px' : '0'} 0 8px;padding-bottom:6px;border-bottom:2px solid #1E40AF">${weekLabel}</h3>`;
+    html += `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
+      <thead><tr style="background:#1E3A5F;color:#fff">
+        <th style="padding:6px 8px;text-align:left;font-size:10px;font-weight:600">Staff</th>`;
+    DAYS.forEach((d, di) => {
+      const dt = new Date(monday);
+      dt.setDate(monday.getDate() + di);
+      html += `<th style="padding:6px 4px;text-align:center;font-size:10px;font-weight:600">${d} ${dt.getDate()}</th>`;
+    });
+    html += `</tr></thead><tbody>`;
+
+    const groups = [
+      { key: 'admin', label: 'ADMIN', color: '#1E40AF' },
+      { key: 'clinical', label: 'CLINICAL', color: '#065F46' },
+      { key: 'bank', label: 'BANK', color: '#9D174D' }
+    ];
+
+    groups.forEach(g => {
+      const members = staffList.filter(s => s.group === g.key);
+      if (members.length === 0) return;
+      html += `<tr><td colspan="8" style="padding:5px 8px;font-weight:700;font-size:10px;color:${g.color};background:#F9FAFB;border-bottom:1px solid ${g.color}">${g.label}</td></tr>`;
+      members.forEach(s => {
+        const sShifts = shifts[s.id] || {};
+        html += `<tr style="border-bottom:1px solid #F3F4F6"><td style="padding:4px 8px;font-weight:500;font-size:11px">${s.name}</td>`;
+        DAYS.forEach(d => {
+          const val = sShifts[d] || '';
+          const bg = val && val.toUpperCase() !== 'DO' ? '#E0F2FE' : (val.toUpperCase() === 'DO' ? '#F3F4F6' : '#fff');
+          html += `<td style="padding:4px 3px;text-align:center;font-size:10px;background:${bg}">${val || '—'}</td>`;
+        });
+        html += '</tr>';
+      });
+    });
+
+    html += '</tbody></table>';
+  });
+
+  html += `
+      <p style="font-size:11px;color:#9CA3AF;margin-top:16px;text-align:center">Waterfront Private Hospital Rota Manager</p>
+    </div>
+    </div>`;
+
+  return html;
 }
 
 
