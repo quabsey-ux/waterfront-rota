@@ -1254,7 +1254,7 @@
 
       // Build weekly table
       html += '<div class="rota-grid" style="margin-bottom:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)">';
-      html += '<div class="rota-grid-scroll" style="max-height:none;overflow:visible">';
+      html += '<div class="rota-grid-scroll" style="max-height:none;overflow-x:auto;overflow-y:visible">';
       html += '<table><thead><tr><th>Staff</th>';
 
       DAYS.forEach(function (d, di) {

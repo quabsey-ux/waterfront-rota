@@ -693,7 +693,7 @@ select.filter:focus { border-color: var(--primary); }
 .monthly-week-status.published { color: var(--success); }
 .monthly-week-status.draft { color: var(--warning); }
 .monthly-week-section .rota-grid { border: none; border-radius: 0; }
-.monthly-week-section .rota-grid-scroll { max-height: none !important; overflow: visible !important; }
+.monthly-week-section .rota-grid-scroll { max-height: none !important; overflow-x: auto !important; overflow-y: visible !important; }
 .monthly-week-section .section-header td { top: 0; }
 
 /* --- Print --- */
