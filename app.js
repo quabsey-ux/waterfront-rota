@@ -880,9 +880,10 @@
     };
     if (!data.name || !data.group) { showToast('Name and Group are required', 'warning'); return; }
 
+    var editingId = state.editingStaffId; // Save before closeStaffModal clears it
     closeStaffModal();
-    if (state.editingStaffId) {
-      data.id = state.editingStaffId;
+    if (editingId) {
+      data.id = editingId;
       showToast('Updating staff...', 'info');
       api('updateStaff', { data: data }).then(function (result) {
         if (result && result.success) {
