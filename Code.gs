@@ -33,6 +33,27 @@ const SHEET_THEATRE = 'Theatre';
 const SHEET_LOG = 'EmailLog';
 const SHEET_CONFIG = 'Config';
 
+// ── PIN VALIDATION ────────────────────────────────────────────────
+function validatePin(pin) {
+  const sheet = getSheet(SHEET_CONFIG);
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === 'admin_pin') {
+      return String(data[i][1]) === String(pin);
+    }
+  }
+  return true; // No PIN configured — allow all writes (backward compatible)
+}
+
+function isPinConfigured() {
+  const sheet = getSheet(SHEET_CONFIG);
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === 'admin_pin' && String(data[i][1]).trim() !== '') return true;
+  }
+  return false;
+}
+
 // ── WEB APP ENTRY POINTS ──────────────────────────────────────────
 function doGet(e) {
   return handleRequest(e);
@@ -48,14 +69,19 @@ function handleRequest(e) {
 
   try {
     let result;
-    // Use lock for write operations to prevent race conditions
-    const writeActions = ['addStaff','updateStaff','deleteStaff','saveShift','saveMultipleShifts','copyWeek','saveTheatre','submitLeave','approveLeave','rejectLeave','publishRota','saveConfig'];
+    const writeActions = ['addStaff','updateStaff','deleteStaff','saveShift','saveMultipleShifts','copyWeek','saveTheatre','submitLeave','approveLeave','rejectLeave','publishRota','publishMonthlyRota','saveConfig'];
     const needsLock = writeActions.indexOf(action) >= 0;
     let lock = null;
 
+    // Validate PIN for write operations
     if (needsLock) {
+      if (!validatePin(params.pin || '')) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ error: 'INVALID_PIN', message: 'Invalid admin PIN' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
       lock = LockService.getScriptLock();
-      lock.tryLock(10000); // Wait up to 10 seconds
+      lock.tryLock(10000);
     }
 
     try {
@@ -83,7 +109,8 @@ function handleRequest(e) {
         case 'rejectLeave': result = rejectLeave(params.id); break;
 
         // Publish & Notify
-        case 'publishRota': result = publishRota(params.weekKey); break;
+        case 'publishRota': result = publishRota(params.weekKey, params.emailMode || 'all'); break;
+        case 'publishMonthlyRota': result = publishMonthlyRota(params.staffId, params.startWeekKey); break;
 
         // Email Log
         case 'getEmailLog': result = getEmailLog(); break;
@@ -92,7 +119,10 @@ function handleRequest(e) {
         case 'getConfig': result = getAppConfig(); break;
         case 'saveConfig': result = saveAppConfig(JSON.parse(params.config)); break;
 
-        // Combined initial load — returns all data in ONE request
+        // PIN verification (no lock needed but listed for frontend use)
+        case 'verifyPin': result = { valid: validatePin(params.pin || '') }; break;
+
+        // Combined initial load
         case 'getInit': result = getInit(params.weekKey); break;
 
         default: result = { error: 'Unknown action: ' + action };
@@ -129,6 +159,7 @@ function getInit(weekKey) {
     published: rotaResult.published || false,
     theatre: theatreResult.schedule || {},
     config: configResult || {},
+    has_pin: isPinConfigured(),
     timestamp: new Date().toISOString()
   };
 }
@@ -444,7 +475,9 @@ function updateLeaveStatus(id, status) {
 }
 
 // ── PUBLISH & NOTIFY ──────────────────────────────────────────────
-function publishRota(weekKey) {
+function publishRota(weekKey, emailMode) {
+  emailMode = emailMode || 'all'; // 'all' | 'staff-only' | 'none'
+
   // Mark as published
   const configSheet = getSheet(SHEET_CONFIG);
   const configData = configSheet.getDataRange().getValues();
@@ -461,34 +494,28 @@ function publishRota(weekKey) {
     configSheet.appendRow(['published_' + weekKey, true, new Date().toISOString()]);
   }
 
-  // Get rota data
+  // If no emails requested, return early
+  if (emailMode === 'none') {
+    return { success: true, emailsSent: 0, managerEmailsSent: 0, weekKey, debug: ['Marked as published, no emails sent'], errors: [] };
+  }
+
   const rotaData = getRota(weekKey);
   const staffResult = getStaff();
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   let emailsSent = 0;
+  let managerEmailsSent = 0;
   const errors = [];
   const debug = [];
-
-  // Debug logging
-  const staffWithEmail = staffResult.staff.filter(s => s.email && String(s.email).trim() !== '');
-  debug.push(staffResult.staff.length + ' total staff, ' + staffWithEmail.length + ' with emails');
-  debug.push('Shift IDs in rota: ' + Object.keys(rotaData.shifts || {}).length);
-
-  // Check remaining email quota
   const emailQuota = MailApp.getRemainingDailyQuota();
-  debug.push('Email quota remaining: ' + emailQuota);
+  debug.push(staffResult.staff.length + ' staff, ' + emailQuota + ' emails remaining in quota');
 
   // Send individual emails to each staff member with shifts
   staffResult.staff.forEach(staff => {
     const shifts = rotaData.shifts[staff.id];
-    if (!shifts || !staff.email || String(staff.email).trim() === '') {
-      return;
-    }
-
+    if (!shifts || !staff.email || String(staff.email).trim() === '') return;
     const hasShifts = days.some(d => shifts[d] && shifts[d] !== '');
-    if (!hasShifts) { debug.push('Skipping ' + staff.name + ': all shift cells empty'); return; }
+    if (!hasShifts) return;
 
-    debug.push('Attempting email to ' + staff.name + ' (' + staff.email + ')');
     try {
       MailApp.sendEmail({
         to: staff.email,
@@ -498,15 +525,76 @@ function publishRota(weekKey) {
       });
       emailsSent++;
       logEmail('Rota published', staff.email, 'Week of ' + weekKey);
-      debug.push('SUCCESS: sent to ' + staff.email);
     } catch (e) {
-      errors.push(staff.name + ' (' + staff.email + '): ' + e.message);
-      debug.push('FAILED: ' + staff.email + ' — ' + e.message);
+      errors.push(staff.name + ': ' + e.message);
     }
   });
 
-  return { success: true, emailsSent, weekKey, debug, errors };
+  // Send manager full-rota summary if mode is 'all'
+  if (emailMode === 'all') {
+    const managerEmails = getManagerEmails();
+    if (managerEmails.length > 0) {
+      const fullRotaHtml = buildFullRotaEmail(staffResult.staff, rotaData.shifts, weekKey);
+      managerEmails.forEach(mEmail => {
+        try {
+          MailApp.sendEmail({
+            to: mEmail,
+            subject: 'Full Weekly Rota — Week of ' + weekKey,
+            htmlBody: fullRotaHtml,
+            name: FROM_NAME
+          });
+          managerEmailsSent++;
+          logEmail('Full rota (manager)', mEmail, 'Week of ' + weekKey);
+        } catch (e) {
+          errors.push('Manager ' + mEmail + ': ' + e.message);
+        }
+      });
+    }
+  }
+
+  debug.push(emailsSent + ' staff emails, ' + managerEmailsSent + ' manager emails');
+  return { success: true, emailsSent, managerEmailsSent, weekKey, debug, errors };
 }
+
+// ── MONTHLY ROTA EMAIL ────────────────────────────────────────────
+function publishMonthlyRota(staffId, startWeekKey) {
+  const staffResult = getStaff();
+  const staff = staffResult.staff.find(s => String(s.id) === String(staffId));
+  if (!staff) return { error: 'Staff not found' };
+  if (!staff.email) return { error: staff.name + ' has no email address' };
+
+  // Calculate 5 consecutive Monday dates
+  const startDate = new Date(startWeekKey + 'T00:00:00');
+  const weekKeys = [];
+  for (let w = 0; w < 5; w++) {
+    const monday = new Date(startDate);
+    monday.setDate(startDate.getDate() + w * 7);
+    weekKeys.push(monday.toISOString().slice(0, 10));
+  }
+
+  // Fetch rota data for all 5 weeks
+  const allWeekShifts = {};
+  weekKeys.forEach(wk => {
+    const rotaData = getRota(wk);
+    allWeekShifts[wk] = rotaData.shifts[staffId] || {};
+  });
+
+  const htmlBody = buildMonthlyRotaEmail(staff, allWeekShifts, weekKeys);
+
+  try {
+    MailApp.sendEmail({
+      to: staff.email,
+      subject: 'Your Monthly Rota — Starting ' + startWeekKey,
+      htmlBody: htmlBody,
+      name: FROM_NAME
+    });
+    logEmail('Monthly rota', staff.email, '5 weeks from ' + startWeekKey);
+    return { success: true, emailsSent: 1, staffName: staff.name };
+  } catch (e) {
+    return { error: 'Failed to send: ' + e.message };
+  }
+}
+
 
 function checkAndNotifyChange(data) {
   // Check if this week's rota is published
@@ -530,7 +618,7 @@ function checkAndNotifyChange(data) {
   try {
     MailApp.sendEmail({
       to: staff.email,
-      subject: `Shift Change — ${data.day}, week of ${data.weekKey}`,
+      subject: 'Shift Change — ' + data.day + ', week of ' + data.weekKey,
       htmlBody: buildShiftChangeEmail(staff.name, data.day, data.value, data.weekKey),
       name: FROM_NAME
     });
@@ -538,6 +626,21 @@ function checkAndNotifyChange(data) {
   } catch (e) {
     Logger.log('Failed to send shift change notification: ' + e.message);
   }
+
+  // Also notify managers
+  const managerEmails = getManagerEmails();
+  managerEmails.forEach(mEmail => {
+    try {
+      MailApp.sendEmail({
+        to: mEmail,
+        subject: 'Shift Change Alert — ' + staff.name + ' — ' + data.day + ', week of ' + data.weekKey,
+        htmlBody: buildShiftChangeEmail(staff.name, data.day, data.value, data.weekKey),
+        name: FROM_NAME
+      });
+    } catch (e) {
+      Logger.log('Failed to notify manager of shift change: ' + e.message);
+    }
+  });
 }
 
 // ── EMAIL TEMPLATES ───────────────────────────────────────────────
@@ -589,6 +692,109 @@ function buildShiftChangeEmail(name, day, newShift, weekKey) {
         <p style="color:#6B7280;font-size:13px;margin:16px 0 0">Please contact your manager if you have any concerns.</p>
       </div>
     </div>`;
+}
+
+// ── FULL ROTA EMAIL (all staff, one week — for managers) ──────────
+function buildFullRotaEmail(staffList, allShifts, weekKey) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const fullDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const groups = [
+    { key: 'admin', label: 'ADMIN' },
+    { key: 'clinical', label: 'CLINICAL' },
+    { key: 'bank', label: 'BANK' }
+  ];
+
+  function shiftBg(val) {
+    if (!val || val === '—') return '#F9FAFB';
+    var v = String(val).toUpperCase();
+    if (v.startsWith('DO')) return '#F3F4F6';
+    if (v.startsWith('A/L')) return '#FEF3C7';
+    if (v === 'AV') return '#DBEAFE';
+    if (v === 'WFH') return '#E0E7FF';
+    return '#ECFDF5';
+  }
+
+  var dayHeaders = days.map(function(d) {
+    return '<th style="padding:6px 4px;background:#1E3A5F;color:#fff;font-size:10px;text-align:center;border:1px solid #E5E7EB">' + d + '</th>';
+  }).join('');
+
+  var bodyRows = '';
+  groups.forEach(function(g) {
+    var members = staffList.filter(function(s) { return s.group === g.key; });
+    if (members.length === 0) return;
+    bodyRows += '<tr><td colspan="8" style="padding:8px 6px;font-weight:700;font-size:11px;color:#1E40AF;background:#EFF6FF;border:1px solid #E5E7EB">' + g.label + ' (' + members.length + ')</td></tr>';
+    members.forEach(function(s) {
+      var shifts = allShifts[s.id] || {};
+      var cells = days.map(function(d) {
+        var val = shifts[d] || '—';
+        return '<td style="padding:4px 2px;text-align:center;font-size:9px;font-weight:600;background:' + shiftBg(val) + ';border:1px solid #E5E7EB;color:#111827">' + val + '</td>';
+      }).join('');
+      bodyRows += '<tr><td style="padding:4px 6px;font-size:10px;font-weight:600;color:#374151;border:1px solid #E5E7EB;white-space:nowrap">' + s.name + '</td>' + cells + '</tr>';
+    });
+  });
+
+  return '<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E5E7EB">' +
+    '<div style="background:linear-gradient(135deg,#1E3A5F,#1E40AF);padding:20px 24px;color:#fff">' +
+      '<h2 style="margin:0;font-size:18px">Full Weekly Rota</h2>' +
+      '<p style="margin:4px 0 0;opacity:0.8;font-size:14px">Week of ' + weekKey + '</p>' +
+    '</div>' +
+    '<div style="padding:16px">' +
+      '<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif">' +
+        '<thead><tr><th style="padding:6px 4px;background:#1E3A5F;color:#fff;font-size:10px;text-align:left;border:1px solid #E5E7EB">Staff</th>' + dayHeaders + '</tr></thead>' +
+        '<tbody>' + bodyRows + '</tbody>' +
+      '</table>' +
+    '</div>' +
+    '<div style="background:#F9FAFB;padding:14px 24px;border-top:1px solid #E5E7EB">' +
+      '<p style="color:#9CA3AF;font-size:12px;margin:0;text-align:center">Waterfront Private Hospital — Rota Management System</p>' +
+    '</div>' +
+  '</div>';
+}
+
+// ── MONTHLY ROTA EMAIL (one staff, 5 weeks) ───────────────────────
+function buildMonthlyRotaEmail(staff, allWeekShifts, weekKeys) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const fullDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  function shiftBg(val) {
+    if (!val || val === '—') return '#F9FAFB';
+    var v = String(val).toUpperCase();
+    if (v.startsWith('DO')) return '#F3F4F6';
+    if (v.startsWith('A/L')) return '#FEF3C7';
+    return '#ECFDF5';
+  }
+
+  var weekTables = weekKeys.map(function(wk) {
+    var shifts = allWeekShifts[wk] || {};
+    var rows = days.map(function(d, i) {
+      var val = shifts[d] || '—';
+      return '<tr><td style="padding:8px 12px;border-bottom:1px solid #E5E7EB;font-weight:600;color:#374151;font-size:13px">' + fullDays[i] + '</td>' +
+             '<td style="padding:8px 12px;border-bottom:1px solid #E5E7EB;background:' + shiftBg(val) + ';text-align:center;font-weight:600;color:#111827;font-size:13px">' + val + '</td></tr>';
+    }).join('');
+
+    return '<div style="margin-bottom:20px">' +
+      '<h3 style="font-size:14px;color:#1E40AF;margin:0 0 8px;padding:8px 12px;background:#EFF6FF;border-radius:6px">Week of ' + wk + '</h3>' +
+      '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;border-radius:6px;overflow:hidden">' +
+        '<thead><tr style="background:#1E3A5F"><th style="padding:8px 12px;color:#fff;text-align:left;font-size:12px">Day</th><th style="padding:8px 12px;color:#fff;text-align:center;font-size:12px">Shift</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+    '</div>';
+  }).join('');
+
+  return '<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #E5E7EB">' +
+    '<div style="background:linear-gradient(135deg,#1E3A5F,#1E40AF);padding:20px 24px;color:#fff">' +
+      '<h2 style="margin:0;font-size:18px">Your Monthly Rota</h2>' +
+      '<p style="margin:4px 0 0;opacity:0.8;font-size:14px">5 weeks starting ' + weekKeys[0] + '</p>' +
+    '</div>' +
+    '<div style="padding:20px 24px">' +
+      '<p style="color:#374151;font-size:14px;margin:0 0 16px">Hi ' + staff.name + ',</p>' +
+      '<p style="color:#374151;font-size:14px;margin:0 0 20px">Here are your shifts for the next 5 weeks:</p>' +
+      weekTables +
+      '<p style="color:#6B7280;font-size:13px;margin:8px 0 0">If you have any questions, please contact your manager.</p>' +
+    '</div>' +
+    '<div style="background:#F9FAFB;padding:14px 24px;border-top:1px solid #E5E7EB">' +
+      '<p style="color:#9CA3AF;font-size:12px;margin:0;text-align:center">Waterfront Private Hospital — Rota Management System</p>' +
+    '</div>' +
+  '</div>';
 }
 
 function buildLeaveRequestEmail(data) {
@@ -643,6 +849,7 @@ function getAppConfig() {
       config.auto_email = value === true || value === 'TRUE' || value === 'true';
     }
   }
+  config.has_pin = isPinConfigured();
   return { success: true, config };
 }
 
@@ -665,6 +872,20 @@ function saveAppConfig(config) {
   }
   if (!foundManagers) sheet.appendRow(['manager_emails', JSON.stringify(config.manager_emails || []), new Date().toISOString()]);
   if (!foundAutoEmail) sheet.appendRow(['auto_email', config.auto_email, new Date().toISOString()]);
+
+  // Handle admin PIN update
+  if (config.admin_pin !== undefined) {
+    let foundPin = false;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === 'admin_pin') {
+        sheet.getRange(i + 1, 2).setValue(config.admin_pin);
+        sheet.getRange(i + 1, 3).setValue(new Date().toISOString());
+        foundPin = true;
+        break;
+      }
+    }
+    if (!foundPin) sheet.appendRow(['admin_pin', config.admin_pin, new Date().toISOString()]);
+  }
 
   return { success: true };
 }

@@ -217,6 +217,16 @@
       </div>
 
       <div class="settings-card">
+        <h3>Admin Security</h3>
+        <p class="desc">Set a PIN to protect editing actions. Viewing the rota still works without a PIN.</p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+          <input type="password" id="admin-pin-input" placeholder="Enter new PIN" maxlength="10" style="flex:1;padding:9px 12px;border:1px solid var(--gray-300);border-radius:var(--radius);font-size:14px;outline:none;max-width:200px">
+          <button class="action-btn primary" onclick="App.saveAdminPin()">Set PIN</button>
+        </div>
+        <p style="font-size:11px;color:var(--gray-400);margin-top:8px">If you forget the PIN, edit the Config sheet directly in Google Sheets and update the <code style="background:var(--gray-100);padding:2px 5px;border-radius:4px;font-size:10px">admin_pin</code> row.</p>
+      </div>
+
+      <div class="settings-card">
         <h3>Staff Personal View Links</h3>
         <p class="desc">Share these links with staff so they can bookmark their own rota (read-only).</p>
         <p style="font-size:12px;color:var(--gray-500);line-height:1.8">
@@ -295,6 +305,36 @@
       <div class="modal-actions">
         <button class="action-btn outline" onclick="App.closeStaffModal()">Cancel</button>
         <button class="action-btn primary" onclick="App.submitStaff()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Publish Options Modal -->
+<div id="publish-modal" class="modal-bg" style="display:none" onclick="if(event.target===this)App.closePublishModal()">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <h3>Publish &amp; Notify</h3>
+      <button onclick="App.closePublishModal()" style="background:var(--gray-100);border:none;border-radius:var(--radius);width:32px;height:32px;cursor:pointer;font-size:16px">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="padding:20px 24px">
+      <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">Choose how to publish this week's rota:</p>
+      <div class="publish-options">
+        <button class="publish-option-btn all" onclick="App.doPublish('all')">
+          <span class="pub-icon">&#x1F4E7;</span>
+          <span class="pub-label">Email Everyone</span>
+          <span class="pub-desc">Staff get individual emails + managers get full overview</span>
+        </button>
+        <button class="publish-option-btn staff-only" onclick="App.doPublish('staff-only')">
+          <span class="pub-icon">&#x1F464;</span>
+          <span class="pub-label">Staff Only</span>
+          <span class="pub-desc">Individual emails to staff only, no manager summary</span>
+        </button>
+        <button class="publish-option-btn none" onclick="App.doPublish('none')">
+          <span class="pub-icon">&#x2705;</span>
+          <span class="pub-label">Mark Published Only</span>
+          <span class="pub-desc">No emails sent &mdash; just mark the rota as published</span>
+        </button>
       </div>
     </div>
   </div>

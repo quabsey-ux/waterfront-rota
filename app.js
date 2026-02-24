@@ -58,6 +58,9 @@
     cache: {},
     undoStack: [],
     staffSearch: '',
+    adminPin: null,
+    pinVerified: false,
+    hasPinConfigured: false,
   };
 
   // ── UTILITIES ──────────────────────────────────────────────────
@@ -122,6 +125,58 @@
         showToast('Connection error: ' + e.message, 'error');
         return null;
       });
+  }
+
+  // ── PIN SECURITY ─────────────────────────────────────────────
+  function apiWrite(action, params) {
+    params = params || {};
+    params.pin = state.adminPin || sessionStorage.getItem('wfr_admin_pin') || '';
+    return api(action, params).then(function (result) {
+      if (result && result.error === 'INVALID_PIN') {
+        sessionStorage.removeItem('wfr_admin_pin');
+        state.adminPin = null;
+        state.pinVerified = false;
+        showToast('Invalid PIN — please try again', 'error');
+        return null;
+      }
+      return result;
+    });
+  }
+
+  function requirePin(callback) {
+    if (!state.hasPinConfigured) { callback(); return; }
+    if (state.pinVerified && state.adminPin) { callback(); return; }
+    var cached = sessionStorage.getItem('wfr_admin_pin');
+    if (cached) { state.adminPin = cached; state.pinVerified = true; callback(); return; }
+    var pin = prompt('Enter admin PIN to make changes:');
+    if (!pin) return;
+    api('verifyPin', { pin: pin }).then(function (result) {
+      if (result && result.valid) {
+        state.adminPin = pin;
+        state.pinVerified = true;
+        sessionStorage.setItem('wfr_admin_pin', pin);
+        callback();
+      } else {
+        showToast('Invalid PIN', 'error');
+      }
+    });
+  }
+
+  function saveAdminPin() {
+    var pin = $('admin-pin-input').value.trim();
+    if (!pin) { showToast('Please enter a PIN', 'warning'); return; }
+    requirePin(function () {
+      apiWrite('saveConfig', { config: JSON.stringify({ admin_pin: pin, manager_emails: state.settings.manager_emails, auto_email: state.settings.auto_email }) }).then(function (result) {
+        if (result && result.success) {
+          state.hasPinConfigured = true;
+          state.adminPin = pin;
+          sessionStorage.setItem('wfr_admin_pin', pin);
+          $('admin-pin-input').value = '';
+          $('pin-status').textContent = 'PIN updated successfully';
+          showToast('Admin PIN updated', 'success');
+        }
+      });
+    });
   }
 
   // ── WEEK CALCULATIONS ─────────────────────────────────────────
@@ -248,6 +303,7 @@
         state.settings = result.config;
         state.settingsLoaded = true;
       }
+      if (result.has_pin) state.hasPinConfigured = true;
 
       // Cache in memory + localStorage
       state.cache[wk] = { shifts: state.currentRota, published: state.isPublished, theatre: state.currentTheatre };
@@ -656,7 +712,7 @@
     renderRota();
 
     // Save to backend
-    api('saveShift', { data: { weekKey: getWeekKey(), staffId: staffId, day: day, value: value } });
+    apiWrite('saveShift', { data: { weekKey: getWeekKey(), staffId: staffId, day: day, value: value } });
 
     if (value !== oldValue) {
       showToast('Shift saved', 'success', function () {
@@ -672,7 +728,7 @@
     state.currentRota[last.staffId][last.day] = last.oldValue;
     invalidateCache(last.weekKey);
     renderRota();
-    api('saveShift', { data: { weekKey: last.weekKey, staffId: last.staffId, day: last.day, value: last.oldValue } });
+    apiWrite('saveShift', { data: { weekKey: last.weekKey, staffId: last.staffId, day: last.day, value: last.oldValue } });
     showToast('Shift reverted', 'info');
   }
 
@@ -695,7 +751,7 @@
       state.currentTheatre[room][day] = input.value;
       invalidateCache(getWeekKey());
       renderTheatre();
-      api('saveTheatre', { data: { weekKey: getWeekKey(), room: room, day: day, value: input.value } });
+      apiWrite('saveTheatre', { data: { weekKey: getWeekKey(), room: room, day: day, value: input.value } });
     };
     input.onkeydown = function (e) {
       if (e.key === 'Enter') input.blur();
@@ -710,19 +766,30 @@
 
   // ── ACTIONS ────────────────────────────────────────────────────
   function publishRota() {
-    if (!confirm('Publish this week\'s rota and send email notifications to all staff?')) return;
-    showToast('Publishing rota & sending emails...', 'info');
-    api('publishRota', { weekKey: getWeekKey() }).then(function (result) {
+    requirePin(function () {
+      $('publish-modal').style.display = 'flex';
+    });
+  }
+
+  function closePublishModal() {
+    $('publish-modal').style.display = 'none';
+  }
+
+  function doPublish(mode) {
+    closePublishModal();
+    var labels = { 'all': 'Publishing & emailing all...', 'staff-only': 'Publishing & emailing staff...', 'none': 'Marking as published...' };
+    showToast(labels[mode] || 'Publishing...', 'info');
+    apiWrite('publishRota', { weekKey: getWeekKey(), emailMode: mode }).then(function (result) {
       if (result && result.success) {
         state.isPublished = true;
         invalidateCache(getWeekKey());
         updatePublishStatus();
-        var msg = 'Rota published! ' + result.emailsSent + ' emails sent';
-        if (result.errors && result.errors.length) msg += ' (' + result.errors.length + ' failed)';
-        showToast(msg, result.emailsSent > 0 ? 'success' : 'warning');
-        // Log debug info to console for troubleshooting
-        if (result.debug) console.log('Publish debug:', result.debug);
-        if (result.errors && result.errors.length) console.warn('Publish errors:', result.errors);
+        var msg = 'Rota published!';
+        if (mode !== 'none') {
+          msg += ' ' + result.emailsSent + ' staff emails';
+          if (result.managerEmailsSent) msg += ', ' + result.managerEmailsSent + ' manager emails';
+        }
+        showToast(msg, 'success');
       } else {
         showToast('Failed to publish: ' + (result ? result.error : 'Unknown error'), 'error');
       }
@@ -738,8 +805,9 @@
     var toWeek = getWeekKey();
 
     if (!confirm('Copy last week\'s rota to this week? This will overwrite any existing entries.')) return;
+    requirePin(function () {
     showToast('Copying previous week...', 'info');
-    api('copyWeek', { fromWeek: fromWeek, toWeek: toWeek }).then(function (result) {
+    apiWrite('copyWeek', { fromWeek: fromWeek, toWeek: toWeek }).then(function (result) {
       if (result && result.success) {
         invalidateCache(toWeek);
         loadWeekData().then(function () {
@@ -748,6 +816,7 @@
       } else {
         showToast('No rota data found for previous week', 'warning');
       }
+    });
     });
   }
 
@@ -780,7 +849,7 @@
 
     closeLeaveModal();
     showToast('Submitting leave request...', 'info');
-    api('submitLeave', { data: data }).then(function (result) {
+    apiWrite('submitLeave', { data: data }).then(function (result) {
       if (result && result.success) {
         showToast('Leave request submitted & managers notified', 'success');
         loadLeave();
@@ -791,26 +860,30 @@
   }
 
   function approveLeave(id) {
-    showToast('Approving...', 'info');
-    api('approveLeave', { id: id }).then(function (result) {
-      if (result && result.success) {
-        showToast('Leave approved \u2014 staff member notified', 'success');
-      } else {
-        showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
-      }
-      loadLeave();
+    requirePin(function () {
+      showToast('Approving...', 'info');
+      apiWrite('approveLeave', { id: id }).then(function (result) {
+        if (result && result.success) {
+          showToast('Leave approved \u2014 staff member notified', 'success');
+        } else {
+          showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
+        }
+        loadLeave();
+      });
     });
   }
 
   function rejectLeave(id) {
     if (!confirm('Reject this leave request?')) return;
-    api('rejectLeave', { id: id }).then(function (result) {
-      if (result && result.success) {
-        showToast('Leave rejected \u2014 staff member notified', 'warning');
-      } else {
-        showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
-      }
-      loadLeave();
+    requirePin(function () {
+      apiWrite('rejectLeave', { id: id }).then(function (result) {
+        if (result && result.success) {
+          showToast('Leave rejected \u2014 staff member notified', 'warning');
+        } else {
+          showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
+        }
+        loadLeave();
+      });
     });
   }
 
@@ -882,49 +955,68 @@
 
     var editingId = state.editingStaffId; // Save before closeStaffModal clears it
     closeStaffModal();
-    if (editingId) {
-      data.id = editingId;
-      showToast('Updating staff...', 'info');
-      api('updateStaff', { data: data }).then(function (result) {
-        if (result && result.success) {
-          return api('getStaff').then(function (r2) {
-            if (r2 && r2.staff) { state.staff = r2.staff; populateLeaveStaffDropdown(); }
-            renderStaffTable();
-            showToast('Staff updated', 'success');
-          });
-        } else {
-          showToast('Failed to update: ' + (result ? result.error : 'Unknown'), 'error');
-        }
-      });
-    } else {
-      showToast('Adding staff...', 'info');
-      api('addStaff', { data: data }).then(function (result) {
-        if (result && result.success) {
-          return api('getStaff').then(function (r2) {
-            if (r2 && r2.staff) { state.staff = r2.staff; populateLeaveStaffDropdown(); }
-            renderStaffTable();
-            showToast('Staff member added', 'success');
-          });
-        } else {
-          showToast('Failed to add: ' + (result ? result.error : 'Unknown'), 'error');
-        }
-      });
-    }
+    requirePin(function () {
+      if (editingId) {
+        data.id = editingId;
+        showToast('Updating staff...', 'info');
+        apiWrite('updateStaff', { data: data }).then(function (result) {
+          if (result && result.success) {
+            return api('getStaff').then(function (r2) {
+              if (r2 && r2.staff) { state.staff = r2.staff; populateLeaveStaffDropdown(); }
+              renderStaffTable();
+              showToast('Staff updated', 'success');
+            });
+          } else {
+            showToast('Failed to update: ' + (result ? result.error : 'Unknown'), 'error');
+          }
+        });
+      } else {
+        showToast('Adding staff...', 'info');
+        apiWrite('addStaff', { data: data }).then(function (result) {
+          if (result && result.success) {
+            return api('getStaff').then(function (r2) {
+              if (r2 && r2.staff) { state.staff = r2.staff; populateLeaveStaffDropdown(); }
+              renderStaffTable();
+              showToast('Staff member added', 'success');
+            });
+          } else {
+            showToast('Failed to add: ' + (result ? result.error : 'Unknown'), 'error');
+          }
+        });
+      }
+    });
   }
 
   function deleteStaffMember(id) {
     var s = state.staff.find(function (x) { return x.id === id; });
     if (!confirm('Delete ' + (s ? s.name : id) + '? This cannot be undone.')) return;
-    showToast('Deleting...', 'info');
-    api('deleteStaff', { id: id }).then(function (result) {
+    requirePin(function () {
+      showToast('Deleting...', 'info');
+      apiWrite('deleteStaff', { id: id }).then(function (result) {
+        if (result && result.success) {
+          return api('getStaff').then(function (r2) {
+            if (r2 && r2.staff) { state.staff = r2.staff; populateLeaveStaffDropdown(); }
+            renderStaffTable();
+            showToast('Staff member deleted', 'success');
+          });
+        } else {
+          showToast('Failed to delete', 'error');
+        }
+      });
+    });
+  }
+
+  function sendMonthlyEmail(staffId) {
+    var s = state.staff.find(function (x) { return x.id === staffId; });
+    if (!s) return;
+    if (!s.email) { showToast(s.name + ' has no email address', 'warning'); return; }
+    if (!confirm('Send ' + s.name + ' their rota for the next 5 weeks?')) return;
+    showToast('Sending monthly rota to ' + s.name + '...', 'info');
+    apiWrite('publishMonthlyRota', { staffId: staffId, startWeekKey: getWeekKey() }).then(function (result) {
       if (result && result.success) {
-        return api('getStaff').then(function (r2) {
-          if (r2 && r2.staff) { state.staff = r2.staff; populateLeaveStaffDropdown(); }
-          renderStaffTable();
-          showToast('Staff member deleted', 'success');
-        });
+        showToast('Monthly rota emailed to ' + s.name, 'success');
       } else {
-        showToast('Failed to delete', 'error');
+        showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
       }
     });
   }
@@ -961,6 +1053,7 @@
           '<td style="font-size:13px">' + (s.email ? '<a href="mailto:' + escapeHtml(s.email) + '" style="color:var(--primary);text-decoration:none">' + escapeHtml(s.email) + '</a>' : '<span style="color:var(--gray-300)">Not set</span>') + '</td>' +
           '<td style="font-size:13px">' + (escapeHtml(s.phone) || '<span style="color:var(--gray-300)">Not set</span>') + '</td>' +
           '<td style="white-space:nowrap">' +
+          (s.email ? '<button class="staff-action-btn email-month" data-staff-email-month="' + escapeHtml(s.id) + '" title="Email 5-week rota">Email Month</button>' : '') +
           '<button class="staff-action-btn edit" data-staff-edit="' + escapeHtml(s.id) + '">Edit</button>' +
           '<button class="staff-action-btn delete" data-staff-delete="' + escapeHtml(s.id) + '">Delete</button>' +
           '</td></tr>';
@@ -1019,7 +1112,7 @@
   }
 
   function saveSettings() {
-    api('saveConfig', { config: state.settings });
+    apiWrite('saveConfig', { config: state.settings });
   }
 
   function saveNotificationPrefs() {
@@ -1212,7 +1305,9 @@
       if (!cell) return;
       var staffId = cell.dataset.staffId;
       var day = cell.dataset.day;
-      if (staffId && day) showShiftPopup(staffId, day, cell);
+      if (staffId && day) {
+        requirePin(function () { showShiftPopup(staffId, day, cell); });
+      }
     });
 
     // Theatre grid clicks
@@ -1223,7 +1318,9 @@
         if (!cell) return;
         var room = cell.dataset.room;
         var day = cell.dataset.day;
-        if (room && day) editTheatre(room, day, cell);
+        if (room && day) {
+          requirePin(function () { editTheatre(room, day, cell); });
+        }
       });
     }
 
@@ -1246,8 +1343,10 @@
       staffBody.addEventListener('click', function (e) {
         var editBtn = e.target.closest('[data-staff-edit]');
         var deleteBtn = e.target.closest('[data-staff-delete]');
+        var emailBtn = e.target.closest('[data-staff-email-month]');
         if (editBtn) editStaffMember(editBtn.dataset.staffEdit);
         if (deleteBtn) deleteStaffMember(deleteBtn.dataset.staffDelete);
+        if (emailBtn) sendMonthlyEmail(emailBtn.dataset.staffEmailMonth);
       });
     }
 
@@ -1396,6 +1495,8 @@
   window.App = {
     changeWeek: changeWeek,
     publishRota: publishRota,
+    closePublishModal: closePublishModal,
+    doPublish: doPublish,
     copyLastWeek: copyLastWeek,
     showLeaveModal: showLeaveModal,
     closeLeaveModal: closeLeaveModal,
@@ -1405,6 +1506,8 @@
     submitStaff: submitStaff,
     addManager: addManager,
     saveNotificationPrefs: saveNotificationPrefs,
+    saveAdminPin: saveAdminPin,
+    sendMonthlyEmail: sendMonthlyEmail,
     toggleLegendPanel: toggleLegendPanel,
     loadData: loadData,
     exportCSV: exportCSV,
