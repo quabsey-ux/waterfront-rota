@@ -542,6 +542,24 @@
       return h;
     }
 
+    // Theatre & Rooms section at top (only when showing all staff)
+    if (filter === 'all') {
+      html += '<tr class="section-header theatre"><td colspan="9">THEATRE &amp; ROOMS (' + ROOMS.length + ')</td></tr>';
+      ROOMS.forEach(function (room) {
+        var schedule = state.currentTheatre[room] || {};
+        var isTheatre = room.indexOf('THEATRE') >= 0;
+        html += '<tr>';
+        html += '<td><div class="staff-name" style="font-size:13px;' + (isTheatre ? 'color:var(--primary)' : '') + '">' + escapeHtml(room) + '</div></td>';
+        DAYS.forEach(function (d, di) {
+          var val = schedule[d] || '';
+          var todayCls = di === todayIdx ? ' today-col' : '';
+          html += '<td class="' + todayCls + '"><div class="shift-cell ' + (val ? 'other' : 'empty') + '" data-room="' + escapeHtml(room) + '" data-day="' + d + '" title="' + (escapeHtml(val) || 'Click to assign') + '">' + (escapeHtml(val) || '\u2014') + '</div></td>';
+        });
+        html += '<td></td>';
+        html += '</tr>';
+      });
+    }
+
     html += renderGroup('admin', 'ADMIN', 'admin', groups.admin);
     html += renderGroup('clinical', 'CLINICAL', 'clinical', groups.clinical);
     html += renderGroup('bank', 'BANK STAFF', 'bank', groups.bank);
@@ -784,11 +802,12 @@
       state.currentTheatre[room][day] = input.value;
       invalidateCache(getWeekKey());
       renderTheatre();
+      renderRota();
       apiWrite('saveTheatre', { data: { weekKey: getWeekKey(), room: room, day: day, value: input.value } });
     };
     input.onkeydown = function (e) {
       if (e.key === 'Enter') input.blur();
-      if (e.key === 'Escape') { renderTheatre(); }
+      if (e.key === 'Escape') { renderTheatre(); renderRota(); }
     };
 
     td.innerHTML = '';
@@ -1379,6 +1398,20 @@
     var rows = [];
     rows.push(['Staff', 'Group'].concat(DAYS).concat(['Total Hours']).join(','));
 
+    // Theatre & Rooms section
+    rows.push('');
+    rows.push('"THEATRE & ROOMS",,,,,,,,');
+    ROOMS.forEach(function (room) {
+      var schedule = state.currentTheatre[room] || {};
+      var row = ['"' + room + '"', '"theatre"'];
+      DAYS.forEach(function (d) {
+        row.push('"' + (schedule[d] || '') + '"');
+      });
+      row.push('');
+      rows.push(row.join(','));
+    });
+    rows.push('');
+
     state.staff.forEach(function (s) {
       var shifts = state.currentRota[s.id] || {};
       var totalHrs = 0;
@@ -1539,8 +1572,15 @@
     $('rota-body').addEventListener('click', function (e) {
       var cell = e.target.closest('.shift-cell');
       if (!cell) return;
-      var staffId = cell.dataset.staffId;
       var day = cell.dataset.day;
+      // Theatre cell?
+      var room = cell.dataset.room;
+      if (room && day) {
+        requirePin(function () { editTheatre(room, day, cell); });
+        return;
+      }
+      // Staff cell
+      var staffId = cell.dataset.staffId;
       if (staffId && day) {
         requirePin(function () { showShiftPopup(staffId, day, cell); });
       }

@@ -224,6 +224,7 @@ body {
   top: 37px;
   z-index: 2;
 }
+.section-header.theatre td { color: #B45309; border-color: #B45309 !important; background: #FFFBEB !important; }
 .section-header.admin td { color: var(--primary); border-color: var(--primary) !important; }
 .section-header.clinical td { color: #065F46; border-color: #065F46 !important; }
 .section-header.bank td { color: var(--pink); border-color: var(--pink) !important; }
