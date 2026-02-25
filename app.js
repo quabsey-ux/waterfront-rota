@@ -1227,8 +1227,36 @@
     var container = $('monthly-rota-container');
     if (!container) return;
     var filter = $('group-filter') ? $('group-filter').value : 'all';
-    var html = '';
     var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // Pre-compute groups (same staff for all weeks)
+    var groups = {
+      admin: state.staff.filter(function (s) { return s.group === 'admin'; }),
+      clinical: state.staff.filter(function (s) { return s.group === 'clinical'; }),
+      bank: state.staff.filter(function (s) { return s.group === 'bank'; }),
+    };
+
+    // Compute dates for each week (for dynamic header update)
+    var weekDates = weekKeys.map(function (wk) {
+      var monday = new Date(wk + 'T00:00:00');
+      return DAYS.map(function (d, i) {
+        var dt = new Date(monday);
+        dt.setDate(monday.getDate() + i);
+        return dt.getDate();
+      });
+    });
+
+    // Build single combined table
+    var html = '<div class="rota-grid monthly-combined">';
+    html += '<div class="rota-grid-scroll">';
+    html += '<table><thead id="monthly-thead"><tr><th>Staff</th>';
+
+    // Initial header shows first week's dates
+    var firstDates = weekDates[0] || [];
+    DAYS.forEach(function (d, i) {
+      html += '<th>' + d + ' ' + (firstDates[i] || '') + '</th>';
+    });
+    html += '<th>HRS</th></tr></thead><tbody>';
 
     weekKeys.forEach(function (wk, wIdx) {
       var monday = new Date(wk + 'T00:00:00');
@@ -1240,35 +1268,17 @@
       var hasData = !!weekData;
       if (!weekData) weekData = { shifts: {}, published: false };
 
-      html += '<div class="monthly-week-section">';
-      html += '<div class="monthly-week-header' + (isCurrent ? ' current' : '') + '">';
+      // Week divider row (sticky below thead)
+      html += '<tr class="monthly-week-divider' + (isCurrent ? ' current' : '') + '" data-dates="' + weekDates[wIdx].join(',') + '">';
+      html += '<td colspan="9">';
       html += '<span class="monthly-week-label">' + escapeHtml(weekLabel) + (isCurrent ? ' (This Week)' : '') + '</span>';
       html += '<span class="monthly-week-status ' + (weekData.published ? 'published' : 'draft') + '">' + (weekData.published ? '\u2713 Published' : '\u25CF Draft') + '</span>';
-      html += '</div>';
+      html += '</td></tr>';
 
       if (!hasData) {
-        html += '<div style="padding:30px;text-align:center;color:var(--gray-400);font-size:13px"><div class="spinner"></div><p style="margin-top:8px">Loading...</p></div>';
-        html += '</div>';
+        html += '<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--gray-400);font-size:13px"><div class="spinner"></div><p style="margin-top:8px">Loading...</p></td></tr>';
         return;
       }
-
-      // Build weekly table
-      html += '<div class="rota-grid" style="margin-bottom:0;border-radius:0 0 var(--radius-lg) var(--radius-lg)">';
-      html += '<div class="rota-grid-scroll" style="max-height:none;overflow-x:auto;overflow-y:visible">';
-      html += '<table><thead><tr><th>Staff</th>';
-
-      DAYS.forEach(function (d, di) {
-        var dt = new Date(monday);
-        dt.setDate(monday.getDate() + di);
-        html += '<th>' + FULL_DAYS[di] + ' ' + dt.getDate() + '</th>';
-      });
-      html += '<th>HRS</th></tr></thead><tbody>';
-
-      var groups = {
-        admin: state.staff.filter(function (s) { return s.group === 'admin'; }),
-        clinical: state.staff.filter(function (s) { return s.group === 'clinical'; }),
-        bank: state.staff.filter(function (s) { return s.group === 'bank'; }),
-      };
 
       function renderMonthlyGroup(groupName, label, colorClass, staffList) {
         if (filter !== 'all' && filter !== groupName) return '';
@@ -1292,11 +1302,37 @@
       html += renderMonthlyGroup('admin', 'ADMIN', 'admin', groups.admin);
       html += renderMonthlyGroup('clinical', 'CLINICAL', 'clinical', groups.clinical);
       html += renderMonthlyGroup('bank', 'BANK STAFF', 'bank', groups.bank);
-
-      html += '</tbody></table></div></div></div>';
     });
 
+    html += '</tbody></table></div></div>';
     container.innerHTML = html;
+
+    // Set up IntersectionObserver to update thead dates as user scrolls between weeks
+    var scrollEl = container.querySelector('.rota-grid-scroll');
+    var theadRow = container.querySelector('#monthly-thead tr');
+    var dividers = container.querySelectorAll('.monthly-week-divider');
+
+    if (scrollEl && theadRow && dividers.length > 0) {
+      var theadCells = theadRow.querySelectorAll('th');
+
+      function updateHeaderDates() {
+        var scrollRect = scrollEl.getBoundingClientRect();
+        var topDivider = null;
+        dividers.forEach(function (d) {
+          var rect = d.getBoundingClientRect();
+          if (rect.top <= scrollRect.top + 80) topDivider = d;
+        });
+        if (!topDivider) topDivider = dividers[0];
+        if (topDivider) {
+          var dates = topDivider.dataset.dates.split(',');
+          DAYS.forEach(function (d, i) {
+            theadCells[i + 1].textContent = d + ' ' + dates[i];
+          });
+        }
+      }
+
+      scrollEl.addEventListener('scroll', updateHeaderDates);
+    }
   }
 
   function emailMonthlyOverview() {
