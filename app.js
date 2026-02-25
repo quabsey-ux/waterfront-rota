@@ -21,6 +21,9 @@
     { label: 'Circ/Recovery', value: '07:00-15:00 CR' },
     { label: 'Day Off', value: 'DO' },
     { label: 'Annual Leave', value: 'A/L' },
+    { label: 'Study Leave', value: 'S/L' },
+    { label: 'Sick', value: 'SICK' },
+    { label: 'Compassionate', value: 'C/L' },
     { label: 'Available', value: 'AV' },
     { label: 'WFH', value: 'WFH' },
   ];
@@ -37,6 +40,9 @@
     { cls: 'rec', label: 'R', desc: 'Reception' },
     { cls: 'cr', label: 'CR', desc: 'Circ/Recovery' },
     { cls: 'opd', label: 'OPD', desc: 'Outpatients' },
+    { cls: 'sl', label: 'S/L', desc: 'Study Leave' },
+    { cls: 'sick', label: 'SICK', desc: 'Sick Leave' },
+    { cls: 'cl', label: 'C/L', desc: 'Compassionate Leave' },
   ];
 
   // ── STATE ──────────────────────────────────────────────────────
@@ -46,6 +52,7 @@
     currentRota: {},
     currentTheatre: {},
     leaveRequests: [],
+    leaveBalances: [],
     isPublished: false,
     editingCell: null,
     editingStaffId: null,
@@ -303,6 +310,7 @@
 
       state.staff = result.staff || [];
       state.leaveRequests = result.leave || [];
+      state.leaveBalances = result.leaveBalances || [];
       state.currentRota = result.rota || {};
       state.isPublished = result.published || false;
       state.currentTheatre = result.theatre || {};
@@ -415,6 +423,9 @@
     var v = val.toUpperCase().trim();
     if (v === 'DO' || v === 'DO R') return 'do';
     if (v.indexOf('A/L') === 0) return 'al';
+    if (v.indexOf('S/L') === 0 || v === 'S/L') return 'sl';
+    if (v.indexOf('C/L') === 0 || v === 'C/L') return 'cl';
+    if (v === 'SICK') return 'sick';
     if (v === 'AV') return 'av';
     if (v.indexOf('WFH') >= 0) return 'wfh';
     if (v.slice(-2) === ' S' || v === 'S') return 'scrub';
@@ -430,7 +441,7 @@
   function parseHours(str) {
     if (!str) return 0;
     var v = str.toUpperCase().trim();
-    if (v === 'DO' || v === 'A/L' || v === 'AV' || v === 'OFF' || v.indexOf('DO ') === 0) return 0;
+    if (v === 'DO' || v === 'A/L' || v === 'AV' || v === 'OFF' || v.indexOf('DO ') === 0 || v === 'S/L' || v === 'C/L' || v === 'SICK') return 0;
     var wfh = v.match(/(\d+\.?\d*)\s*h/i);
     if (wfh) return parseFloat(wfh[1]);
     var m = str.match(/(\d{1,2}):?(\d{2})?\s*[-\u2013]\s*(\d{1,2}):?(\d{2})?/);
@@ -455,7 +466,7 @@
       var v = val.toUpperCase().trim();
       if (!v || v === '\u2014') { off++; }
       else if (v === 'DO' || v.indexOf('DO ') === 0) { off++; }
-      else if (v.indexOf('A/L') === 0 || v === 'SICK') { onLeave++; }
+      else if (v.indexOf('A/L') === 0 || v === 'SICK' || v.indexOf('S/L') === 0 || v.indexOf('C/L') === 0) { onLeave++; }
       else {
         working++;
         if (s.group === 'bank') bankIn++;
@@ -588,6 +599,19 @@
   }
 
   // ── RENDERING: Leave ──────────────────────────────────────────
+  function countWeekdays(startStr, endStr) {
+    var count = 0;
+    var s = new Date(startStr + 'T00:00:00');
+    var e = new Date(endStr + 'T00:00:00');
+    var c = new Date(s);
+    while (c <= e) {
+      var dow = c.getDay();
+      if (dow >= 1 && dow <= 5) count++;
+      c.setDate(c.getDate() + 1);
+    }
+    return count;
+  }
+
   function renderLeave() {
     var tbody = $('leave-body');
     if (!tbody) return;
@@ -598,13 +622,25 @@
       else { badge.style.display = 'none'; }
     }
 
+    // Render balance cards at top
+    renderLeaveBalances();
+
+    // Filter by status
+    var filterEl = $('leave-status-filter');
+    var statusFilter = filterEl ? filterEl.value : 'all';
+    var filtered = state.leaveRequests.filter(function (r) {
+      return statusFilter === 'all' || r.status === statusFilter;
+    });
+
     var html = '';
-    state.leaveRequests.forEach(function (r) {
+    filtered.forEach(function (r) {
+      var days = countWeekdays(String(r.startDate).slice(0, 10), String(r.endDate).slice(0, 10));
       html += '<tr>' +
         '<td style="font-weight:500">' + escapeHtml(r.staffName) + '</td>' +
         '<td>' + escapeHtml(r.type) + '</td>' +
-        '<td>' + escapeHtml(r.startDate) + '</td>' +
-        '<td>' + escapeHtml(r.endDate) + '</td>' +
+        '<td>' + escapeHtml(String(r.startDate).slice(0, 10)) + '</td>' +
+        '<td>' + escapeHtml(String(r.endDate).slice(0, 10)) + '</td>' +
+        '<td style="text-align:center;font-weight:600">' + days + '</td>' +
         '<td style="color:var(--gray-500)">' + (escapeHtml(r.reason) || '\u2014') + '</td>' +
         '<td><span class="leave-status ' + escapeHtml(r.status) + '">' + escapeHtml(r.status) + '</span></td>' +
         '<td>' + (r.status === 'pending'
@@ -613,10 +649,59 @@
           : '') + '</td>' +
         '</tr>';
     });
-    if (state.leaveRequests.length === 0) {
-      html = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--gray-400)">No leave requests</td></tr>';
+    if (filtered.length === 0) {
+      html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--gray-400)">No leave requests' + (statusFilter !== 'all' ? ' with status "' + statusFilter + '"' : '') + '</td></tr>';
     }
     tbody.innerHTML = html;
+  }
+
+  function renderLeaveBalances() {
+    var container = $('leave-balances-container');
+    if (!container) return;
+    var balances = state.leaveBalances || [];
+    if (balances.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    var groups = [
+      { key: 'admin', label: 'ADMIN', cls: 'admin' },
+      { key: 'clinical', label: 'CLINICAL', cls: 'clinical' }
+    ];
+
+    var html = '<div class="leave-balance-section">';
+    groups.forEach(function (g) {
+      var members = balances.filter(function (b) { return b.group === g.key; });
+      if (members.length === 0) return;
+      html += '<div class="leave-group-header ' + g.cls + '">' + g.label + ' (' + members.length + ')</div>';
+      html += '<div class="leave-balance-grid">';
+      members.forEach(function (b) {
+        var pct = b.entitlement > 0 ? Math.round((b.taken / b.entitlement) * 100) : 0;
+        if (pct > 100) pct = 100;
+        var barColor = pct < 60 ? '#10B981' : pct < 85 ? '#F59E0B' : '#EF4444';
+        var yearLabel = b.yearStart ? b.yearStart.slice(5) + ' to ' + b.yearEnd.slice(5) : 'Calendar year';
+
+        // Build other leave breakdown
+        var otherParts = [];
+        if (b.leaveBreakdown) {
+          if (b.leaveBreakdown.study > 0) otherParts.push(b.leaveBreakdown.study + 'd Study');
+          if (b.leaveBreakdown.sick > 0) otherParts.push(b.leaveBreakdown.sick + 'd Sick');
+          if (b.leaveBreakdown.compassionate > 0) otherParts.push(b.leaveBreakdown.compassionate + 'd Compassionate');
+        }
+        var otherHtml = otherParts.length > 0 ? '<div class="card-other">' + otherParts.join(' &middot; ') + '</div>' : '';
+
+        html += '<div class="leave-balance-card">' +
+          '<div class="card-name">' + escapeHtml(b.staffName) + '</div>' +
+          '<div class="card-year">' + yearLabel + '</div>' +
+          '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div>' +
+          '<div class="card-stats"><span><span class="stat-val">' + b.entitlement + '</span> entitled</span><span><span class="stat-val">' + b.taken + '</span> taken</span><span><span class="stat-val" style="color:' + barColor + '">' + b.remaining + '</span> remaining</span></div>' +
+          otherHtml +
+          '</div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
   }
 
   function updatePublishStatus() {
@@ -1043,11 +1128,16 @@
       showToast('Approving...', 'info');
       apiWrite('approveLeave', { id: id }).then(function (result) {
         if (result && result.success) {
-          showToast('Leave approved \u2014 staff member notified', 'success');
+          showToast('Leave approved \u2014 shifts added to rota', 'success');
+          // Invalidate rota cache so auto-inserted shifts appear
+          state.cache = {};
+          renderRota();
         } else {
           showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
         }
+        // Refresh leave requests and balances
         loadLeave();
+        refreshLeaveBalances();
       });
     });
   }
@@ -1062,7 +1152,17 @@
           showToast('Failed: ' + (result ? result.error : 'Unknown'), 'error');
         }
         loadLeave();
+        refreshLeaveBalances();
       });
+    });
+  }
+
+  function refreshLeaveBalances() {
+    api('getLeaveBalances').then(function (result) {
+      if (result && result.balances) {
+        state.leaveBalances = result.balances;
+        renderLeaveBalances();
+      }
     });
   }
 
@@ -1097,6 +1197,8 @@
     $('staff-contract-hours').value = '';
     $('staff-email').value = '';
     $('staff-phone').value = '';
+    $('staff-start-date').value = '';
+    $('staff-leave-entitlement').value = '';
     $('staff-modal').style.display = 'flex';
   }
 
@@ -1117,6 +1219,8 @@
     $('staff-contract-hours').value = s.contractHours || '';
     $('staff-email').value = s.email || '';
     $('staff-phone').value = s.phone || '';
+    $('staff-start-date').value = s.startdate || '';
+    $('staff-leave-entitlement').value = s.leaveentitlement || '';
     $('staff-modal').style.display = 'flex';
   }
 
@@ -1129,6 +1233,8 @@
       contractHours: parseFloat($('staff-contract-hours').value) || 0,
       email: $('staff-email').value.trim(),
       phone: $('staff-phone').value.trim(),
+      startdate: $('staff-start-date').value,
+      leaveentitlement: parseInt($('staff-leave-entitlement').value) || 0,
     };
     if (!data.name || !data.group) { showToast('Name and Group are required', 'warning'); return; }
 
@@ -1221,7 +1327,7 @@
         return true;
       });
       if (list.length === 0) return;
-      html += '<tr><td colspan="8" style="padding:10px 14px;font-weight:700;font-size:12px;color:var(--primary);background:var(--gray-50);letter-spacing:0.5px;border-bottom:2px solid var(--primary)">' + escapeHtml(g.label) + ' (' + list.length + ')</td></tr>';
+      html += '<tr><td colspan="10" style="padding:10px 14px;font-weight:700;font-size:12px;color:var(--primary);background:var(--gray-50);letter-spacing:0.5px;border-bottom:2px solid var(--primary)">' + escapeHtml(g.label) + ' (' + list.length + ')</td></tr>';
       list.forEach(function (s) {
         html += '<tr>' +
           '<td style="font-weight:500">' + escapeHtml(s.name) + '</td>' +
@@ -1229,6 +1335,8 @@
           '<td style="color:var(--gray-500);font-size:13px">' + (escapeHtml(s.department) || '\u2014') + '</td>' +
           '<td style="font-size:13px">' + (escapeHtml(s.hours) || '\u2014') + '</td>' +
           '<td style="text-align:center;font-size:13px;font-weight:600">' + (s.contractHours ? escapeHtml(String(s.contractHours)) : '\u2014') + '</td>' +
+          '<td style="font-size:13px;color:var(--gray-500)">' + (s.startdate ? escapeHtml(s.startdate) : '\u2014') + '</td>' +
+          '<td style="text-align:center;font-size:13px;font-weight:600">' + (s.leaveentitlement ? escapeHtml(String(s.leaveentitlement)) : '\u2014') + '</td>' +
           '<td style="font-size:13px">' + (s.email ? '<a href="mailto:' + escapeHtml(s.email) + '" style="color:var(--primary);text-decoration:none">' + escapeHtml(s.email) + '</a>' : '<span style="color:var(--gray-300)">Not set</span>') + '</td>' +
           '<td style="font-size:13px">' + (escapeHtml(s.phone) || '<span style="color:var(--gray-300)">Not set</span>') + '</td>' +
           '<td style="white-space:nowrap">' +
@@ -1239,7 +1347,7 @@
       });
     });
 
-    if (html === '') html = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--gray-400)">No staff members found</td></tr>';
+    if (html === '') html = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--gray-400)">No staff members found</td></tr>';
     tbody.innerHTML = html;
   }
 

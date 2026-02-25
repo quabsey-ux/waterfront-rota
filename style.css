@@ -265,6 +265,9 @@ body {
 .shift-cell.opd { background: #FFF7ED; border-color: #C2410C; color: #C2410C; }
 .shift-cell.time { background: #ECFDF5; border-color: var(--success); color: #065F46; }
 .shift-cell.other { background: #F0F9FF; border-color: #3B82F6; color: var(--primary); }
+.shift-cell.sl   { background: #DBEAFE; border-color: #3B82F6; color: #1E40AF; }
+.shift-cell.sick  { background: #FEE2E2; border-color: #EF4444; color: #991B1B; }
+.shift-cell.cl   { background: #EDE9FE; border-color: #8B5CF6; color: #5B21B6; }
 
 /* --- Shift Input --- */
 .shift-input {
@@ -530,6 +533,74 @@ body {
   background: var(--gray-100);
   padding: 4px 10px;
   border-radius: 6px;
+}
+
+/* --- Leave Balance Cards --- */
+.leave-balance-section { margin-bottom: 24px; }
+.leave-group-header {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 8px 0 6px;
+  border-bottom: 2px solid;
+  margin-bottom: 12px;
+}
+.leave-group-header.admin { color: var(--primary); border-color: var(--primary); }
+.leave-group-header.clinical { color: #065F46; border-color: #065F46; }
+.leave-balance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.leave-balance-card {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  transition: box-shadow 0.15s;
+}
+.leave-balance-card:hover { box-shadow: var(--shadow); }
+.leave-balance-card .card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin-bottom: 2px;
+}
+.leave-balance-card .card-year {
+  font-size: 11px;
+  color: var(--gray-400);
+  margin-bottom: 10px;
+}
+.leave-balance-card .progress-bar {
+  height: 8px;
+  background: var(--gray-100);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.leave-balance-card .progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+.leave-balance-card .card-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--gray-500);
+  margin-bottom: 6px;
+}
+.leave-balance-card .card-stats .stat-val {
+  font-weight: 700;
+  color: var(--gray-900);
+}
+.leave-balance-card .card-other {
+  font-size: 11px;
+  color: var(--gray-400);
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--gray-100);
 }
 
 /* --- Config Banner --- */

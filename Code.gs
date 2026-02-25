@@ -104,6 +104,7 @@ function handleRequest(e) {
 
         // Leave
         case 'getLeave': result = getLeave(); break;
+        case 'getLeaveBalances': result = getLeaveBalances(); break;
         case 'submitLeave': result = submitLeave(JSON.parse(params.data)); break;
         case 'approveLeave': result = approveLeave(params.id); break;
         case 'rejectLeave': result = rejectLeave(params.id); break;
@@ -153,6 +154,7 @@ function getInit(weekKey) {
   const rotaResult = getRota(weekKey);
   const theatreResult = getTheatre(weekKey);
   const configResult = getAppConfig();
+  const balancesResult = getLeaveBalances();
   return {
     staff: staffResult.staff || [],
     leave: leaveResult.requests || [],
@@ -161,6 +163,7 @@ function getInit(weekKey) {
     theatre: theatreResult.schedule || {},
     config: configResult.config || {},
     has_pin: isPinConfigured(),
+    leaveBalances: balancesResult.balances || [],
     timestamp: new Date().toISOString()
   };
 }
@@ -362,6 +365,40 @@ function saveTheatre(data) {
   return { success: true };
 }
 
+// ── LEAVE HELPERS ─────────────────────────────────────────────────
+function getLeaveShiftCode(leaveType) {
+  const map = {
+    'Annual Leave': 'A/L',
+    'Study Leave': 'S/L',
+    'Sick Leave': 'SICK',
+    'Compassionate Leave': 'C/L'
+  };
+  return map[leaveType] || 'A/L';
+}
+
+function getWeekdaysBetween(startDateStr, endDateStr) {
+  const result = [];
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const start = new Date(startDateStr + 'T00:00:00');
+  const end = new Date(endDateStr + 'T00:00:00');
+  const current = new Date(start);
+  while (current <= end) {
+    const dow = current.getDay();
+    if (dow >= 1 && dow <= 5) { // Mon-Fri
+      // Calculate the Monday (weekKey) for this date
+      const monday = new Date(current);
+      monday.setDate(current.getDate() - (dow - 1));
+      result.push({
+        date: current.toISOString().slice(0, 10),
+        dayName: DAYS[dow],
+        weekKey: monday.toISOString().slice(0, 10)
+      });
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return result;
+}
+
 // ── LEAVE FUNCTIONS ───────────────────────────────────────────────
 function getLeave() {
   const sheet = getSheet(SHEET_LEAVE);
@@ -445,6 +482,15 @@ function updateLeaveStatus(id, status) {
       const endDate = data[i][headers.indexOf('endDate')];
       const type = data[i][headers.indexOf('type')];
 
+      // Auto-insert shifts into rota when approved
+      if (status === 'approved') {
+        const shiftCode = getLeaveShiftCode(type);
+        const weekdays = getWeekdaysBetween(cellStr(startDate), cellStr(endDate));
+        weekdays.forEach(function(wd) {
+          saveShift({ weekKey: wd.weekKey, staffId: String(staffId), day: wd.dayName, value: shiftCode });
+        });
+      }
+
       // Find staff email
       const staffSheet = getSheet(SHEET_STAFF);
       const staffData = staffSheet.getDataRange().getValues();
@@ -457,11 +503,11 @@ function updateLeaveStatus(id, status) {
           try {
             MailApp.sendEmail({
               to: staffData[j][emailCol],
-              subject: `Leave ${status === 'approved' ? 'Approved' : 'Rejected'}: ${startDate} to ${endDate}`,
-              htmlBody: buildLeaveDecisionEmail(staffName, type, startDate, endDate, status),
+              subject: `Leave ${status === 'approved' ? 'Approved' : 'Rejected'}: ${cellStr(startDate)} to ${cellStr(endDate)}`,
+              htmlBody: buildLeaveDecisionEmail(staffName, type, cellStr(startDate), cellStr(endDate), status),
               name: FROM_NAME
             });
-            logEmail('Leave ' + status, staffData[j][emailCol], type + ': ' + startDate + ' to ' + endDate);
+            logEmail('Leave ' + status, staffData[j][emailCol], type + ': ' + cellStr(startDate) + ' to ' + cellStr(endDate));
           } catch (e) {
             Logger.log('Failed to send leave notification: ' + e.message);
           }
@@ -473,6 +519,94 @@ function updateLeaveStatus(id, status) {
     }
   }
   return { error: 'Leave request not found' };
+}
+
+// ── LEAVE BALANCES ────────────────────────────────────────────────
+function getLeaveBalances() {
+  const staffResult = getStaff();
+  const leaveResult = getLeave();
+  const allStaff = staffResult.staff || [];
+  const allLeave = leaveResult.requests || [];
+  const today = new Date();
+  const balances = [];
+
+  // Only admin + clinical staff
+  const eligibleStaff = allStaff.filter(function(s) {
+    return s.group === 'admin' || s.group === 'clinical';
+  });
+
+  eligibleStaff.forEach(function(staff) {
+    var entitlement = parseInt(staff.leaveentitlement) || 28;
+    var startDateStr = staff.startdate ? cellStr(staff.startdate) : '';
+
+    // Calculate leave year based on start date anniversary
+    var yearStart, yearEnd;
+    if (startDateStr) {
+      var sd = new Date(startDateStr + 'T00:00:00');
+      yearStart = new Date(today.getFullYear(), sd.getMonth(), sd.getDate());
+      if (yearStart > today) {
+        yearStart.setFullYear(yearStart.getFullYear() - 1);
+      }
+      yearEnd = new Date(yearStart);
+      yearEnd.setFullYear(yearEnd.getFullYear() + 1);
+      yearEnd.setDate(yearEnd.getDate() - 1);
+    } else {
+      // Default: calendar year
+      yearStart = new Date(today.getFullYear(), 0, 1);
+      yearEnd = new Date(today.getFullYear(), 11, 31);
+    }
+
+    var yearStartStr = yearStart.toISOString().slice(0, 10);
+    var yearEndStr = yearEnd.toISOString().slice(0, 10);
+
+    // Count approved leave days in this leave year
+    var annualTaken = 0;
+    var studyDays = 0;
+    var sickDays = 0;
+    var compassionateDays = 0;
+
+    allLeave.forEach(function(req) {
+      if (String(req.staffId) !== String(staff.id)) return;
+      if (req.status !== 'approved') return;
+
+      var leaveStart = cellStr(req.startDate);
+      var leaveEnd = cellStr(req.endDate);
+
+      // Check if leave overlaps with leave year
+      if (leaveEnd < yearStartStr || leaveStart > yearEndStr) return;
+
+      // Clamp to leave year boundaries
+      var effectiveStart = leaveStart < yearStartStr ? yearStartStr : leaveStart;
+      var effectiveEnd = leaveEnd > yearEndStr ? yearEndStr : leaveEnd;
+
+      var weekdays = getWeekdaysBetween(effectiveStart, effectiveEnd);
+      var dayCount = weekdays.length;
+
+      var leaveType = req.type || 'Annual Leave';
+      if (leaveType === 'Annual Leave') annualTaken += dayCount;
+      else if (leaveType === 'Study Leave') studyDays += dayCount;
+      else if (leaveType === 'Sick Leave') sickDays += dayCount;
+      else if (leaveType === 'Compassionate Leave') compassionateDays += dayCount;
+    });
+
+    balances.push({
+      staffId: staff.id,
+      staffName: staff.name,
+      group: staff.group,
+      entitlement: entitlement,
+      taken: annualTaken,
+      remaining: entitlement - annualTaken,
+      yearStart: yearStartStr,
+      yearEnd: yearEndStr,
+      leaveBreakdown: {
+        study: studyDays,
+        sick: sickDays,
+        compassionate: compassionateDays
+      }
+    });
+  });
+
+  return { balances: balances };
 }
 
 // ── PUBLISH & NOTIFY ──────────────────────────────────────────────
@@ -1087,52 +1221,52 @@ function setupSheets() {
   let sheet = ss.getSheetByName(SHEET_STAFF);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_STAFF);
-    sheet.appendRow(['id', 'name', 'group', 'department', 'hours', 'contractHours', 'email', 'phone']);
+    sheet.appendRow(['id', 'name', 'group', 'department', 'hours', 'contractHours', 'email', 'phone', 'startDate', 'leaveEntitlement']);
 
     // Pre-populate with your current staff
     const staff = [
       // Admin
-      ['adm-01', 'Janey', 'admin', '', 'FULL TIME', 37.5, '', ''],
-      ['adm-02', 'Katrina', 'admin', '', 'FULL TIME', 37.5, '', ''],
-      ['adm-03', 'Debbie', 'admin', '', 'PART TIME', 22.5, '', ''],
-      ['adm-04', 'Danielle', 'admin', '', 'PART TIME', 15.5, '', ''],
-      ['adm-05', 'Margaret', 'admin', '', 'PART TIME', 15, '', ''],
-      ['adm-06', 'Lucy', 'admin', '', 'BANK', 0, '', ''],
+      ['adm-01', 'Janey', 'admin', '', 'FULL TIME', 37.5, '', '', '', 28],
+      ['adm-02', 'Katrina', 'admin', '', 'FULL TIME', 37.5, '', '', '', 28],
+      ['adm-03', 'Debbie', 'admin', '', 'PART TIME', 22.5, '', '', '', 28],
+      ['adm-04', 'Danielle', 'admin', '', 'PART TIME', 15.5, '', '', '', 28],
+      ['adm-05', 'Margaret', 'admin', '', 'PART TIME', 15, '', '', '', 28],
+      ['adm-06', 'Lucy', 'admin', '', 'BANK', 0, '', '', '', 0],
       // Clinical
-      ['cli-01', 'Morag', 'clinical', '', '', 37.5, '', ''],
-      ['cli-02', 'Islay', 'clinical', '', '', 25, '', ''],
-      ['cli-03', 'Oksana', 'clinical', '', '', 37.5, '', ''],
-      ['cli-04', 'Christina', 'clinical', '', '', 37.5, '', ''],
-      ['cli-05', 'Cezary', 'clinical', '', '', 37.5, '', ''],
-      ['cli-06', 'Piel', 'clinical', '', '', 37.5, '', ''],
-      ['cli-07', 'Inez', 'clinical', '', '', 30, '', ''],
-      ['cli-08', 'Laura', 'clinical', '', '', 36, '', ''],
-      ['cli-09', 'Kerry Ann', 'clinical', '', '', 33, '', ''],
-      ['cli-10', 'Wojtek', 'clinical', '', '', 37.5, '', ''],
+      ['cli-01', 'Morag', 'clinical', '', '', 37.5, '', '', '', 28],
+      ['cli-02', 'Islay', 'clinical', '', '', 25, '', '', '', 28],
+      ['cli-03', 'Oksana', 'clinical', '', '', 37.5, '', '', '', 28],
+      ['cli-04', 'Christina', 'clinical', '', '', 37.5, '', '', '', 28],
+      ['cli-05', 'Cezary', 'clinical', '', '', 37.5, '', '', '', 28],
+      ['cli-06', 'Piel', 'clinical', '', '', 37.5, '', '', '', 28],
+      ['cli-07', 'Inez', 'clinical', '', '', 30, '', '', '', 28],
+      ['cli-08', 'Laura', 'clinical', '', '', 36, '', '', '', 28],
+      ['cli-09', 'Kerry Ann', 'clinical', '', '', 33, '', '', '', 28],
+      ['cli-10', 'Wojtek', 'clinical', '', '', 37.5, '', '', '', 28],
       // Bank
-      ['bnk-01', 'Gleb', 'bank', '', '', 0, '', ''],
-      ['bnk-02', 'Rona', 'bank', '', '', 0, '', ''],
-      ['bnk-03', 'Sybil', 'bank', '', '', 0, '', ''],
-      ['bnk-04', 'Gomes', 'bank', '', '', 0, '', ''],
-      ['bnk-05', 'Myron', 'bank', '', '', 0, '', ''],
-      ['bnk-06', 'Claudia', 'bank', 'OPD', '', 0, '', ''],
-      ['bnk-07', 'Louise', 'bank', 'OPD', '', 0, '', ''],
-      ['bnk-08', 'Sally', 'bank', 'OPD/Ward', '', 0, '', ''],
-      ['bnk-09', 'Jo', 'bank', 'OPD', '', 0, '', ''],
-      ['bnk-10', 'Eve', 'bank', 'Ward', '', 0, '', ''],
-      ['bnk-11', 'Damien', 'bank', 'Ward', '', 0, '', ''],
-      ['bnk-12', 'Draga', 'bank', 'Ward', '', 0, '', ''],
-      ['bnk-13', 'Irina', 'bank', 'Ward', '', 0, '', ''],
-      ['bnk-14', 'Olga', 'bank', 'ODP', '', 0, '', ''],
-      ['bnk-15', 'Ashleigh', 'bank', 'ODP', '', 0, '', ''],
-      ['bnk-16', 'Steve G', 'bank', 'ODP', '', 0, '', ''],
-      ['bnk-17', 'Elisabeth', 'bank', 'TH', '', 0, '', ''],
-      ['bnk-18', 'Clare', 'bank', 'Scrub/Rec', '', 0, '', ''],
-      ['bnk-19', 'Isabella', 'bank', 'REC', '', 0, '', ''],
-      ['bnk-20', 'Maxine', 'bank', 'ODP', '', 0, '', ''],
-      ['bnk-21', 'Fiona B', 'bank', 'Scrub', '', 0, '', ''],
-      ['bnk-22', 'Carl', 'bank', 'TH', '', 0, '', ''],
-      ['bnk-23', 'Mariam', 'bank', '', '', 0, '', ''],
+      ['bnk-01', 'Gleb', 'bank', '', '', 0, '', '', '', 0],
+      ['bnk-02', 'Rona', 'bank', '', '', 0, '', '', '', 0],
+      ['bnk-03', 'Sybil', 'bank', '', '', 0, '', '', '', 0],
+      ['bnk-04', 'Gomes', 'bank', '', '', 0, '', '', '', 0],
+      ['bnk-05', 'Myron', 'bank', '', '', 0, '', '', '', 0],
+      ['bnk-06', 'Claudia', 'bank', 'OPD', '', 0, '', '', '', 0],
+      ['bnk-07', 'Louise', 'bank', 'OPD', '', 0, '', '', '', 0],
+      ['bnk-08', 'Sally', 'bank', 'OPD/Ward', '', 0, '', '', '', 0],
+      ['bnk-09', 'Jo', 'bank', 'OPD', '', 0, '', '', '', 0],
+      ['bnk-10', 'Eve', 'bank', 'Ward', '', 0, '', '', '', 0],
+      ['bnk-11', 'Damien', 'bank', 'Ward', '', 0, '', '', '', 0],
+      ['bnk-12', 'Draga', 'bank', 'Ward', '', 0, '', '', '', 0],
+      ['bnk-13', 'Irina', 'bank', 'Ward', '', 0, '', '', '', 0],
+      ['bnk-14', 'Olga', 'bank', 'ODP', '', 0, '', '', '', 0],
+      ['bnk-15', 'Ashleigh', 'bank', 'ODP', '', 0, '', '', '', 0],
+      ['bnk-16', 'Steve G', 'bank', 'ODP', '', 0, '', '', '', 0],
+      ['bnk-17', 'Elisabeth', 'bank', 'TH', '', 0, '', '', '', 0],
+      ['bnk-18', 'Clare', 'bank', 'Scrub/Rec', '', 0, '', '', '', 0],
+      ['bnk-19', 'Isabella', 'bank', 'REC', '', 0, '', '', '', 0],
+      ['bnk-20', 'Maxine', 'bank', 'ODP', '', 0, '', '', '', 0],
+      ['bnk-21', 'Fiona B', 'bank', 'Scrub', '', 0, '', '', '', 0],
+      ['bnk-22', 'Carl', 'bank', 'TH', '', 0, '', '', '', 0],
+      ['bnk-23', 'Mariam', 'bank', '', '', 0, '', '', '', 0],
     ];
     staff.forEach(row => sheet.appendRow(row));
   }

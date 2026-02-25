@@ -6,7 +6,7 @@
   <meta name="description" content="Waterfront Private Hospital Staff Rota Manager">
   <meta name="theme-color" content="#1E3A5F">
   <title>Waterfront Rota Manager</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 
@@ -164,12 +164,26 @@
 
     <!-- ═══ LEAVE TAB ═══ -->
     <div id="tab-leave" style="display:none">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2 style="font-size:17px;font-weight:600">Annual Leave &amp; Time Off</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <h2 style="font-size:17px;font-weight:600">Leave Management</h2>
         <button class="action-btn purple" onclick="App.showLeaveModal()">+ New Request</button>
       </div>
+
+      <!-- Leave Balance Cards -->
+      <div id="leave-balances-container"></div>
+
+      <!-- Leave Requests Table -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+        <h3 style="font-size:15px;font-weight:600;color:var(--gray-700)">Leave Requests</h3>
+        <select class="filter" id="leave-status-filter" onchange="App.renderLeave()">
+          <option value="all">All Requests</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
       <table class="data-table">
-        <thead><tr><th>Staff</th><th>Type</th><th>From</th><th>To</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Staff</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="leave-body"></tbody>
       </table>
     </div>
@@ -196,7 +210,7 @@
         <input type="text" class="search-input" id="staff-search" placeholder="Search staff...">
       </div>
       <table class="data-table" style="width:100%">
-        <thead><tr><th>Name</th><th>Group</th><th>Department</th><th>Hours Type</th><th>Contract Hrs</th><th>Email</th><th>Phone</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Group</th><th>Department</th><th>Hours Type</th><th>Contract Hrs</th><th>Start Date</th><th>Leave Days</th><th>Email</th><th>Phone</th><th>Actions</th></tr></thead>
         <tbody id="staff-body"></tbody>
       </table>
     </div>
@@ -268,7 +282,7 @@
       <select id="leave-staff"></select>
       <label>Leave Type</label>
       <select id="leave-type">
-        <option>Annual Leave</option><option>Sick Leave</option><option>Training</option><option>Personal</option><option>TOIL</option>
+        <option>Annual Leave</option><option>Study Leave</option><option>Sick Leave</option><option>Compassionate Leave</option><option>TOIL</option>
       </select>
       <label>From</label>
       <input type="date" id="leave-start">
@@ -316,6 +330,10 @@
       <input type="email" id="staff-email" placeholder="name@example.com">
       <label>Phone</label>
       <input type="tel" id="staff-phone" placeholder="+44 123 456 7890">
+      <label>Employment Start Date</label>
+      <input type="date" id="staff-start-date">
+      <label>Annual Leave Entitlement (days)</label>
+      <input type="number" id="staff-leave-entitlement" placeholder="e.g. 28" min="0" step="1">
       <div class="modal-actions">
         <button class="action-btn outline" onclick="App.closeStaffModal()">Cancel</button>
         <button class="action-btn primary" onclick="App.submitStaff()">Save</button>
@@ -375,6 +393,6 @@
 <!-- Toast Container -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
