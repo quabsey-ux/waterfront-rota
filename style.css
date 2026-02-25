@@ -510,6 +510,28 @@ body {
 .modal textarea { min-height: 80px; resize: vertical; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; padding-top: 6px; }
 
+/* --- Schedule Lookup Modal --- */
+#schedule-lookup-content {
+  max-height: calc(85vh - 160px);
+  overflow-y: auto;
+}
+#schedule-lookup-content .staff-view-week {
+  margin-bottom: 12px;
+}
+.schedule-lookup-info {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.schedule-lookup-info span {
+  background: var(--gray-100);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
 /* --- Config Banner --- */
 .config-banner {
   background: #FEF3C7;

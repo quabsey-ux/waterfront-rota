@@ -6,7 +6,7 @@
   <meta name="description" content="Waterfront Private Hospital Staff Rota Manager">
   <meta name="theme-color" content="#1E3A5F">
   <title>Waterfront Rota Manager</title>
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 
@@ -88,6 +88,7 @@
             <option value="clinical">Clinical Only</option>
             <option value="bank">Bank Only</option>
           </select>
+          <button class="action-btn outline" onclick="App.showScheduleLookup()">&#x1F50D; Staff Lookup</button>
           <button class="action-btn outline" onclick="App.copyLastWeek()">&#x1F4CB; Copy Last Week</button>
           <button class="action-btn outline" id="monthly-toggle" onclick="App.toggleMonthlyView()">&#x1F4C6; Monthly View</button>
           <button class="action-btn success" onclick="App.publishRota()">&#x1F4E7; Publish &amp; Notify</button>
@@ -353,9 +354,27 @@
   </div>
 </div>
 
+<!-- Staff Schedule Lookup Modal -->
+<div id="schedule-lookup-modal" class="modal-bg" style="display:none" onclick="if(event.target===this)App.closeScheduleLookup()">
+  <div class="modal" style="width:600px">
+    <div class="modal-header">
+      <h3>Staff Schedule Lookup</h3>
+      <button onclick="App.closeScheduleLookup()" style="background:var(--gray-100);border:none;border-radius:var(--radius);width:32px;height:32px;cursor:pointer;font-size:16px">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="padding:16px 24px">
+      <select id="schedule-lookup-staff" class="filter" style="width:100%;margin-bottom:16px;font-size:14px">
+        <option value="">-- Choose a staff member --</option>
+      </select>
+      <div id="schedule-lookup-content">
+        <p style="text-align:center;color:var(--gray-400);padding:40px 0">Select a staff member above to view their upcoming schedule.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast Container -->
 <div id="toast-container"></div>
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

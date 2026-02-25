@@ -882,6 +882,133 @@
     }).join('');
   }
 
+  // ── STAFF SCHEDULE LOOKUP ──────────────────────────────────
+  function showScheduleLookup() {
+    var select = $('schedule-lookup-staff');
+    var content = $('schedule-lookup-content');
+    content.innerHTML = '<p style="text-align:center;color:var(--gray-400);padding:40px 0">Select a staff member above to view their upcoming schedule.</p>';
+
+    // Populate dropdown sorted by group then name, with optgroups
+    var sorted = state.staff.slice().sort(function (a, b) {
+      var groupOrder = { admin: 0, clinical: 1, bank: 2 };
+      var ga = groupOrder[a.group] || 9;
+      var gb = groupOrder[b.group] || 9;
+      if (ga !== gb) return ga - gb;
+      return a.name.localeCompare(b.name);
+    });
+
+    var html = '<option value="">-- Choose a staff member --</option>';
+    var lastGroup = '';
+    sorted.forEach(function (s) {
+      var groupLabel = (s.group || '').charAt(0).toUpperCase() + (s.group || '').slice(1);
+      if (s.group !== lastGroup) {
+        if (lastGroup) html += '</optgroup>';
+        html += '<optgroup label="' + escapeHtml(groupLabel) + '">';
+        lastGroup = s.group;
+      }
+      html += '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.name) +
+        (s.department ? ' (' + escapeHtml(s.department) + ')' : '') + '</option>';
+    });
+    if (lastGroup) html += '</optgroup>';
+    select.innerHTML = html;
+
+    select.onchange = function () {
+      if (!select.value) {
+        content.innerHTML = '<p style="text-align:center;color:var(--gray-400);padding:40px 0">Select a staff member above to view their upcoming schedule.</p>';
+        return;
+      }
+      loadScheduleLookup(select.value);
+    };
+
+    $('schedule-lookup-modal').style.display = 'flex';
+  }
+
+  function closeScheduleLookup() {
+    $('schedule-lookup-modal').style.display = 'none';
+  }
+
+  function loadScheduleLookup(staffId) {
+    var content = $('schedule-lookup-content');
+    var staffMember = state.staff.find(function (s) { return s.id === staffId; });
+    if (!staffMember) return;
+
+    content.innerHTML = '<div style="text-align:center;padding:40px 0"><div class="spinner"></div><p style="margin-top:8px;color:var(--gray-400);font-size:13px">Loading schedule...</p></div>';
+
+    // Calculate 5 week keys starting from current week (always from today, ignoring weekOffset)
+    var weekKeys = [];
+    for (var w = 0; w < 5; w++) {
+      var today = new Date();
+      var monday = new Date(today);
+      monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + w * 7);
+      weekKeys.push(monday.toISOString().slice(0, 10));
+    }
+
+    // Fetch any weeks not already in cache
+    var fetches = [];
+    weekKeys.forEach(function (wk) {
+      if (!state.cache[wk]) {
+        fetches.push(
+          api('getRota', { weekKey: wk }).then(function (r) {
+            if (r) {
+              state.cache[wk] = { shifts: r.shifts || {}, published: r.published || false, theatre: {} };
+            }
+          })
+        );
+      }
+    });
+
+    Promise.all(fetches).then(function () {
+      renderScheduleLookup(staffMember, weekKeys);
+    });
+  }
+
+  function renderScheduleLookup(staffMember, weekKeys) {
+    var content = $('schedule-lookup-content');
+    var weekM = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // Staff info bar
+    var html = '<div class="schedule-lookup-info">';
+    if (staffMember.group) html += '<span>' + escapeHtml(staffMember.group.charAt(0).toUpperCase() + staffMember.group.slice(1)) + '</span>';
+    if (staffMember.hours) html += '<span>' + escapeHtml(staffMember.hours) + '</span>';
+    if (staffMember.contractHours) html += '<span>' + staffMember.contractHours + 'h/wk</span>';
+    if (staffMember.department) html += '<span>' + escapeHtml(staffMember.department) + '</span>';
+    html += '</div>';
+
+    weekKeys.forEach(function (wk, w) {
+      var monday = new Date(wk + 'T00:00:00');
+      var sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      var label = monday.getDate() + ' ' + weekM[monday.getMonth()] + ' \u2013 ' + sunday.getDate() + ' ' + weekM[sunday.getMonth()];
+      var isCurrent = w === 0;
+
+      var cached = state.cache[wk];
+      var shifts = cached ? (cached.shifts[staffMember.id] || {}) : {};
+
+      var totalHrs = 0;
+      DAYS.forEach(function (d) { totalHrs += parseHours(shifts[d] || ''); });
+      totalHrs = Math.round(totalHrs * 10) / 10;
+
+      html += '<div class="staff-view-week">';
+      html += '<h3>' + (isCurrent ? '\uD83D\uDCCD ' : '') + escapeHtml(label) + (isCurrent ? ' (This Week)' : '') +
+        (totalHrs > 0 ? ' <span style="float:right;font-weight:500;font-size:12px;color:var(--gray-500)">' + totalHrs + 'h</span>' : '') + '</h3>';
+      html += '<div class="days">';
+
+      DAYS.forEach(function (d, i) {
+        var dt = new Date(monday);
+        dt.setDate(monday.getDate() + i);
+        var val = shifts[d] || '';
+        var cls = getShiftClass(val);
+        html += '<div class="day-cell">' +
+          '<div class="day-label">' + FULL_DAYS[i].slice(0, 3) + ' ' + dt.getDate() + '</div>' +
+          '<div class="shift-cell ' + cls + '" style="min-height:32px;cursor:default">' + (escapeHtml(val) || '\u2014') + '</div></div>';
+      });
+
+      html += '</div></div>';
+    });
+
+    content.innerHTML = html;
+  }
+
   function showLeaveModal() { $('leave-modal').style.display = 'flex'; }
   function closeLeaveModal() { $('leave-modal').style.display = 'none'; }
 
@@ -1817,6 +1944,8 @@
     renderStaffTable: renderStaffTable,
     renderRota: renderRota,
     refreshRotaView: refreshRotaView,
+    showScheduleLookup: showScheduleLookup,
+    closeScheduleLookup: closeScheduleLookup,
   };
 
   document.addEventListener('DOMContentLoaded', init);
